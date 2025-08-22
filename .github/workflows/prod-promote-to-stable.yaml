@@ -1,0 +1,57 @@
+name: Promote candidate → stable (prod)
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: "Tag to promote"
+        default: "inference-prod-candidate"
+        required: true
+      stable_tag:
+        description: "Stable tag to write"
+        default: "inference-prod-stable"
+        required: true
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  # If prod is a different account/registry, use a prod-specific secret here
+  ECR_REPOSITORY_URI: ${{ secrets.ECR_REPOSITORY_URI }}
+
+concurrency:
+  group: promote-prod
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: prod   # use GitHub Environments for required reviewers/approvals
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Tag candidate as stable in ECR (server-side)
+        run: |
+          set -euo pipefail
+          REPO="${ECR_REPOSITORY_URI#*/}"
+          CAND="${{ github.event.inputs.candidate_tag }}"
+          STBL="${{ github.event.inputs.stable_tag }}"
+
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name "$REPO" \
+            --image-ids imageTag="$CAND" \
+            --query 'images[0].imageManifest' \
+            --output text)
+
+          if [ "$MANIFEST" = "None" ] || [ -z "$MANIFEST" ]; then
+            echo "Candidate tag not found: $CAND" >&2
+            exit 1
+          fi
+
+          aws ecr put-image --repository-name "$REPO" \
+            --image-tag "$STBL" \
+            --image-manifest "$MANIFEST"
+
+          echo "Promoted $CAND -> $STBL"

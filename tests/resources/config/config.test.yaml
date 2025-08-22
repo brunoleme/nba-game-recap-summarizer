@@ -1,0 +1,59 @@
+# src/text2cypher/finetuning/config/config.test.yaml
+project_name: "notechat-finetune-test"
+
+logging:
+  log_path: "logs"
+
+model:
+  type: "t5"
+  name: "t5-small"
+  quantization: false
+  peft_method: "lora"
+  max_length: 256
+
+lora:
+  r: 4
+  alpha: 4
+  dropout: 0.1
+  prompt_tuning_n_tokens: 8
+
+training:
+  batch_size: 2
+  learning_rate: 2e-5
+  warmup_steps: 0
+  weight_decay: 0.0
+  patience: 1
+  gradient_clip_val: 1.0
+  max_epochs: 1
+  num_workers: 0           # avoids multiprocessing issues in CI
+  model_artifact_dir: "tests/resources/artifacts"   # <- important: matches evaluation
+  devices: "auto"           # keep deterministic, no GPU dependency
+
+data:
+  train_samples: 10
+  val_samples: 2
+  test_samples: 2
+  shuffle: false
+  shuffle_seed: 42
+  train_split: 0.5
+  val_split: 0.25
+  test_split: 0.25
+  shuffle_buffer_size: 128
+  source_data_folder: "tests/resources"
+  source_data_path: "source_data/notechat_sample_dataset.csv"
+  preprocessed_output_data_folder: "tests/resources"      # tests override this anyway
+  preprocessed_input_data_folder: "tests/resources" # app appends /preprocessed
+
+evaluation:
+  model_artifact_dir: "tests/resources/artifacts"   # <- must match training
+  test_samples_lexical_metrics: 2
+  test_samples_semantic_metrics: 2
+  test_samples_ai_as_judge_metrics: 2
+
+# Keep Hydra from changing cwd or writing to unique run dirs in tests
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+  output_subdir: null

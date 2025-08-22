@@ -1,0 +1,74 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# PyInstaller
+*.spec
+
+# Pytest cache
+.cache/
+.pytest_cache/
+
+# Hydra config cache
+hydra_logs/
+outputs/
+multirun/
+
+# Weights & Biases
+wandb/
+
+# Checkpoints and models
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+*.bin
+*.h5
+*.tflite
+
+# Logs and debug
+*.log
+logs/
+
+# Environment files
+.env
+.env.*
+
+# Mac system files
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Profiling & perf
+.prof
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+
+# PyCharm
+.idea/
+
+# MyPy
+.mypy_cache/

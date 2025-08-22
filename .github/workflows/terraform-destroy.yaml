@@ -1,0 +1,95 @@
+# .github/workflows/terraform-destroy.yml
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment"
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+
+concurrency:
+  group: terraform-${{ github.event.inputs.env }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY_URI: ${{ secrets.ECR_REPOSITORY_URI }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/envs/${{ github.event.inputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Pre-destroy scale-down (ECS + ASG)
+        env:
+          CLUSTER: text2cypher-${{ github.event.inputs.env }}-cluster
+          SERVICE: text2cypher-${{ github.event.inputs.env }}-v1-service
+        run: |
+          set -euxo pipefail
+
+          # 1) Scale ECS service to 0 (ignore if missing)
+          if aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].status' --output text 2>/dev/null | grep -q ACTIVE; then
+            aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --desired-count 0 || true
+            # Wait until the service is stable at 0
+            aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE" || true
+          fi
+
+          # 2) Find GPU ASGs for this env (handles multiple, if any)
+          ASGS=$(aws autoscaling describe-auto-scaling-groups \
+            --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `text2cypher-''${{ github.event.inputs.env }}''-cluster`) && contains(AutoScalingGroupName, `gpu-asg`)].AutoScalingGroupName' \
+            --output text)
+
+          for ASG in $ASGS; do
+            # Scale to 0
+            aws autoscaling update-auto-scaling-group --auto-scaling-group-name "$ASG" --min-size 0 --desired-capacity 0 || true
+
+            # Terminate remaining instances and wait for termination to complete
+            INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG" \
+              --query 'AutoScalingGroups[0].Instances[].InstanceId' --output text)
+
+            for ID in $INSTANCES; do
+              aws autoscaling terminate-instance-in-auto-scaling-group \
+                --instance-id "$ID" --no-should-decrement-desired-capacity || true
+            done
+
+            # Poll until ASG has no instances left (handles Terminating:Wait/Proceed)
+            for i in $(seq 1 60); do
+              LEFT=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG" \
+                --query 'length(AutoScalingGroups[0].Instances)' --output text)
+              [ "$LEFT" = "0" ] && break
+              sleep 10
+            done
+          done
+
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.6
+
+      - name: Terraform init
+        run: terraform init -reconfigure
+
+      # Tip: some modules validate vars at plan time; pass the same ones you use on apply
+      - name: Terraform destroy
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          # these only matter if your modules require them at plan time:
+          TF_VAR_inference_image_uri:      ${{ env.ECR_REPOSITORY_URI }}:inference-${{ github.event.inputs.env }}-candidate
+          TF_VAR_inference_image_v2_uri:   ${{ env.ECR_REPOSITORY_URI }}:inference-${{ github.event.inputs.env }}-candidate
+          TF_VAR_model_path:               s3://bl-portfolio-ml-sagemaker-${{ github.event.inputs.env }}/dummy
+        run: |
+          terraform destroy -auto-approve

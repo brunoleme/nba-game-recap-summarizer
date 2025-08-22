@@ -1,0 +1,144 @@
+name: Train on Prod (SageMaker)
+
+on:
+  push:
+    branches:
+      - prod
+
+env:
+  IMAGE_TAG: prod-latest
+  INFERENCE_IMAGE_CANDIDATE_TAG: inference-prod-candidate
+  INFERENCE_IMAGE_STABLE_TAG: inference-prod-stable
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  ECR_REPOSITORY_URI: ${{ secrets.ECR_REPOSITORY_URI }}
+  SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+  PREPROCESSING_INSTANCE_TYPE: ml.m5.xlarge
+  TRAINING_INSTANCE_TYPE: ml.g4dn.xlarge
+  EVALUATION_INSTANCE_TYPE: ml.g4dn.xlarge
+  DEPLOYMENT_INSTANCE_TYPE: ml.g4dn.xlarge
+  BASE_IMAGE: 763104351884.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/pytorch-inference:2.0.1-gpu-py310-cu118-ubuntu20.04-sagemaker
+
+jobs:
+  build-and-push-training:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build training image
+        run: |
+          docker build -t $ECR_REPOSITORY_URI:$IMAGE_TAG -f Dockerfile.training .
+          docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+
+  build-and-push-inference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Login to SageMaker public ECR
+        run: |
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS \
+              --password-stdin 763104351884.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+      - name: Build & push inference (candidate + SHA)
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::7}"
+          docker build -t "$ECR_REPOSITORY_URI:$INFERENCE_IMAGE_CANDIDATE_TAG" -t "$ECR_REPOSITORY_URI:$SHA" -f Dockerfile.inference .
+          docker push "$ECR_REPOSITORY_URI:$SHA"
+          docker push "$ECR_REPOSITORY_URI:$INFERENCE_IMAGE_CANDIDATE_TAG"
+
+  trigger-sagemaker:
+    runs-on: ubuntu-latest
+    needs: [build-and-push-training, build-and-push-inference]
+    outputs:
+      pipeline_run_id: ${{ steps.meta.outputs.pipeline_run_id }}
+      model_path:      ${{ steps.meta.outputs.model_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - run: pip install 'sagemaker>=2.93.0' boto3
+      - uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          
+      - id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PIPELINE_RUN_ID=$(uuidgen | tr 'A-Z' 'a-z')
+          # publish for downstream jobs
+          echo "pipeline_run_id=$PIPELINE_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "model_path=s3://bl-portfolio-ml-sagemaker-${{ github.ref_name }}/output/artifacts/${PIPELINE_RUN_ID}/checkpoints/best_model.ckpt" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger SageMaker Pipeline
+        run: |
+          make sagemaker-pipeline-trigger \
+            PIPELINE_RUN_ID=${{ steps.meta.outputs.pipeline_run_id }} \
+            ECR_REPOSITORY_URI=${{ env.ECR_REPOSITORY_URI }} \
+            IMAGE_TAG=${{ env.IMAGE_TAG }} \
+            INFERENCE_IMAGE_TAG=${{ env.INFERENCE_IMAGE_CANDIDATE_TAG }} \
+            SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }} \
+            ENV=prod \
+            WANDB_API_KEY=${{ env.WANDB_API_KEY }} \
+            OPENAI_API_KEY=${{ env.OPENAI_API_KEY }} \
+            PREPROCESSING_INSTANCE_TYPE=${{ env.PREPROCESSING_INSTANCE_TYPE }} \
+            TRAINING_INSTANCE_TYPE=${{ env.TRAINING_INSTANCE_TYPE }} \
+            EVALUATION_INSTANCE_TYPE=${{ env.EVALUATION_INSTANCE_TYPE }} \
+            DEPLOYMENT_INSTANCE_TYPE=${{ env.DEPLOYMENT_INSTANCE_TYPE }} \
+            LAMBDA_DEPLOYMENT_ARN=arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.AWS_ACCOUNT_ID }}:function:sagemaker-deployer
+
+      - name: Output SageMaker Pipeline Execution ARN
+        run: echo "Pipeline triggered successfully"
+
+  deploy-model-service:
+    runs-on: ubuntu-latest
+    needs: [trigger-sagemaker, build-and-push-inference]
+    defaults:
+      run:
+        working-directory: terraform/envs/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.6
+
+      - name: Terraform Apply
+        env:
+          TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ env.INFERENCE_IMAGE_STABLE_TAG }}
+          TF_VAR_inference_image_v2_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ env.INFERENCE_IMAGE_CANDIDATE_TAG }}
+          TF_VAR_model_path:          ${{ needs.trigger-sagemaker.outputs.model_path }}
+          TF_VAR_aws_region:          ${{ env.AWS_REGION }} 
+        run: |
+          terraform init -reconfigure
+          terraform apply -auto-approve
