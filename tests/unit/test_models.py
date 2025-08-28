@@ -7,7 +7,7 @@ from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSu
 @pytest.fixture
 def default_llama_model() -> LlamaRecapSummarizationModel:
     return LlamaRecapSummarizationModel(
-        model_name="meta-llama/Llama-3.2-1B-Instruct",
+        model_name="hf-internal-testing/tiny-random-LlamaForCausalLM",
         model_type="llama",
         use_quantization=False,
     )
@@ -15,8 +15,8 @@ def default_llama_model() -> LlamaRecapSummarizationModel:
 @pytest.mark.parametrize(
     "model_name, model_type, use_quantization",
     [
-        ("meta-llama/Llama-3.2-1B-Instruct", "llama", False),
-        ("meta-llama/Llama-3.2-1B-Instruct", "llama", True),
+        ("hf-internal-testing/tiny-random-LlamaForCausalLM", "llama", False),
+        ("hf-internal-testing/tiny-random-LlamaForCausalLM", "llama", True),
         ("llama-nonexistent", "llama", False),
     ]
 )
@@ -73,7 +73,7 @@ def test_summarize_recap_with_empty_input(default_llama_model):
 @pytest.mark.parametrize("peft_method", ["lora", "prompt_tuning"])
 def test_llama_model_with_peft(peft_method):
     model = LlamaRecapSummarizationModel(
-        model_name="meta-llama/Llama-3.2-1B-Instruct",
+        model_name="hf-internal-testing/tiny-random-LlamaForCausalLM",
         model_type="llama",
         peft_method=peft_method,
         use_quantization=False
