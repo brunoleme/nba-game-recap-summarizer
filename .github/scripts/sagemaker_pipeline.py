@@ -9,15 +9,13 @@ from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
 from sagemaker.workflow.condition_step import ConditionStep
 from sagemaker.workflow.functions import JsonGet
 from sagemaker.model import Model
-from sagemaker.workflow.lambda_step import LambdaStep, LambdaOutput
-from sagemaker.lambda_helper import Lambda
 
 def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
     session = PipelineSession()
 
     # Parameters
     pipeline_run_id_param = ParameterString(name="PipelineRunID", default_value="no-pipeline-id")
-    source_data_folder_uri = ParameterString(name="InputDataFolderURI", default_value="s3://bl-portfolio-ml-sagemaker-source-data/notechat-dataset/")
+    source_data_folder_uri = ParameterString(name="InputDataFolderURI", default_value="s3://nba-recap-summarization-model-source-data/nba-recap-dataset/")
     # job_prefix_name = ParameterString(name="JobPrefixName", default_value="Project")
     env_param = ParameterString(name="Environment", default_value="dev")
     wandb_api_key = ParameterString(name="WandbApiKey", default_value="")
@@ -33,9 +31,9 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
     deployment_instance_type = ParameterString(name="DeploymentInstanceType", default_value="ml.m5.large")
     project_config = ParameterString(name="ProjectConfig", default_value="config.dev")
 
-    preprocessed_data_output_uri = ParameterString("PreprocessedOutputS3Uri", default_value="s3://bl-portfolio-ml-sagemaker-dev/input/preprocessed")
-    training_artifacts_output_uri = ParameterString("TrainingOutputS3Uri", default_value="s3://bl-portfolio-ml-sagemaker-dev/output/artifacts")
-    package_model_uri = ParameterString("PackagedModelS3Uri", default_value="s3://bl-portfolio-ml-sagemaker-dev/output/artifacts/no_pipeline_id/model.tar.gz")
+    preprocessed_data_output_uri = ParameterString("PreprocessedOutputS3Uri", default_value="s3://nba-recap-summarization-model-dev/input/preprocessed")
+    training_artifacts_output_uri = ParameterString("TrainingOutputS3Uri", default_value="s3://nba-recap-summarization-model-dev/output/artifacts")
+    package_model_uri = ParameterString("PackagedModelS3Uri", default_value="s3://nba-recap-summarization-model-dev/output/artifacts/no_pipeline_id/model.tar.gz")
 
     # Preprocessing
     preprocessing_processor = ScriptProcessor(
@@ -57,7 +55,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         processor=preprocessing_processor,
         code="scripts/preprocessing.py",
         job_arguments=[
-            "--config-path", "src/text2cypher/finetuning/config",
+            "--config-path", "src/nba_game_recap_summarizer/finetuning/config",
             "--config-name", project_config
         ],
         inputs=[ProcessingInput(source=source_data_folder_uri, destination="/opt/ml/processing/input/source-data", input_name="source-data")],
@@ -84,7 +82,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         processor=training_processor,
         code="scripts/train.py",
         job_arguments=[
-            "--config-path", "src/text2cypher/finetuning/config",
+            "--config-path", "src/nba_game_recap_summarizer/finetuning/config",
             "--config-name", project_config
         ],
         inputs=[ProcessingInput(
@@ -122,7 +120,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         processor=evaluation_processor,
         code="scripts/evaluate_model.py",
         job_arguments=[
-            "--config-path", "src/text2cypher/finetuning/config",
+            "--config-path", "src/nba_game_recap_summarizer/finetuning/config",
             "--config-name", project_config
         ],
         inputs=[
@@ -153,15 +151,15 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
     )
 
     register_model_step = ModelStep(
-        name="RegisterNoteChatModel",
+        name="RegisterNBAGameRecapModel",
         step_args=model.register(
             content_types=["application/json"],
             response_types=["application/json"],
             inference_instances=[deployment_instance_type],
             transform_instances=[deployment_instance_type],
-            model_package_group_name="NoteChatModel",
+            model_package_group_name="NBAGameRecapModel",
             approval_status="Approved",
-            description="Registered model for notechat generation",
+            description="Registered model for NBA recap summarizer model",
             customer_metadata_properties={
                 "pipeline_run_id": pipeline_run_id_param,
                 "env": env_param,
@@ -184,7 +182,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
     )
 
     return Pipeline(
-        name="NoteChatPipeline",
+        name="NBARecapModelPipeline",
         parameters=[
             source_data_folder_uri,
             preprocessed_data_output_uri,

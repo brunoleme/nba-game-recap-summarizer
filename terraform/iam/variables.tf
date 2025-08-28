@@ -6,7 +6,7 @@ variable "name_prefix" {
 variable "model_bucket_prefix" {
   type        = string
   description = "Prefix for S3 buckets that store models"
-  default     = "bl-portfolio-ml-sagemaker-"
+  default     = "nba-recap-summarization-model-"
 }
 
 variable "kms_key_arn" {

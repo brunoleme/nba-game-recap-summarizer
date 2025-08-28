@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import hydra
-from text2cypher.finetuning.train import train
+from nba_game_recap_summarizer.finetuning.train import train
 from tests.utils import run_preprocessing_for_tests
 
 

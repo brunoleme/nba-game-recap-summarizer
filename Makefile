@@ -1,7 +1,7 @@
 .PHONY: install test lint format clean clean-artifacts check run train evaluate clean-venv create-venv clean-all sagemaker-trigger sagemaker-pipeline-trigger
 
 ENV ?= dev
-CONFIG_PATH ?= src/text2cypher/finetuning/config
+CONFIG_PATH ?= src/nba_game_recap_summarizer/finetuning/config
 CONFIG_FILE := $(CONFIG_PATH)/config.$(ENV).yaml
 
 help:
@@ -92,7 +92,7 @@ sagemaker-trigger:
 	@MODEL_URI=$$(python .github/scripts/trigger_sagemaker.py \
 		--image-uri $(ECR_REPOSITORY_URI):$(IMAGE_TAG) \
 		--role-arn $(SAGEMAKER_ROLE_ARN) \
-		--job-name text2cypher-$(ENV) \
+		--job-name nba_game_recap_summarizer-$(ENV) \
 		--env $(ENV) \
 		--wandb-api-key $(WANDB_API_KEY) \
 		--instance-type ml.g4dn.xlarge)
@@ -109,7 +109,7 @@ sagemaker-pipeline-trigger:
 		--image-uri $(ECR_REPOSITORY_URI):$(IMAGE_TAG) \
 		--inference-image-uri $(ECR_REPOSITORY_URI):$(INFERENCE_IMAGE_TAG) \
 		--role-arn $(SAGEMAKER_ROLE_ARN) \
-		--job-name text2cypher-$(ENV) \
+		--job-name nba_game_recap_summarizer-$(ENV) \
 		--env $(ENV) \
 		--wandb-api-key $(WANDB_API_KEY) \
 		--openai-api-key $(OPENAI_API_KEY) \

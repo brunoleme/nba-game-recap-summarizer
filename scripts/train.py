@@ -1,15 +1,16 @@
 import os
 import hydra
 from omegaconf import OmegaConf
-from text2cypher.finetuning.train import train
-from text2cypher.finetuning.pre_training import pre_train
-from text2cypher.finetuning.post_training import package_model
+
+from nba_game_recap_summarizer.finetuning.train import train
+from nba_game_recap_summarizer.finetuning.pre_training import pre_train
+from nba_game_recap_summarizer.finetuning.post_training import package_model
 
 
 def main():
     env = os.environ.get("ENV", "dev")
     config_name = f"config.{env}"
-    config_path = os.path.abspath("src/text2cypher/finetuning/config")
+    config_path = os.path.abspath("src/nba_game_recap_summarizer/finetuning/config")
 
     with hydra.initialize_config_dir(config_dir=config_path):
         cfg = hydra.compose(config_name=config_name)

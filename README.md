@@ -1,2 +1,2 @@
-# text2cypher-model
-Development of a Text2Cypher model, leveraging and finetuning a LLM model.
+# nba_game_recap_summarizer_model
+Development of a nba_game_recap_summarizer model, leveraging and finetuning a LLM model.

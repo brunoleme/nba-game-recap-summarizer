@@ -1,7 +1,7 @@
 [project]
-name = "text2cypher"
+name = "nba_game_recap_summarizer"
 version = "0.1.0"
-description = "Clinical note generation with T5 and PEFT"
+description = "NBA game recap summarization with Llama and PEFT"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

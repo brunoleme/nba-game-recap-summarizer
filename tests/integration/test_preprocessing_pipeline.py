@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import hydra
-from text2cypher.finetuning.preprocessing import preprocessing
+from nba_game_recap_summarizer.finetuning.preprocessing import preprocessing
 
 
 def test_preprocessing_pipeline():
@@ -18,8 +18,8 @@ def test_preprocessing_pipeline():
 
     out_root = Path(cfg.data.preprocessed_output_data_folder)
     for name in [
-        "preprocessed/notechat_sample_dataset_train.parquet",
-        "preprocessed/notechat_sample_dataset_val.parquet",
-        "preprocessed/notechat_sample_dataset_test.parquet",
+        "preprocessed/game_recaps_with_summaries_sample_train.parquet",
+        "preprocessed/game_recaps_with_summaries_sample_val.parquet",
+        "preprocessed/game_recaps_with_summaries_sample_test.parquet",
     ]:
         assert (out_root / name).exists()

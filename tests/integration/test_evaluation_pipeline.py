@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 import hydra
 
-from text2cypher.finetuning.evaluate_model import evaluate_model
+from nba_game_recap_summarizer.finetuning.evaluate_model import evaluate_model
 from tests.utils import run_preprocessing_for_tests
 
 
@@ -29,10 +29,10 @@ def test_evaluation_pipeline():
     os.environ["PIPELINE_RUN_ID"] = "pipeline_id"
 
     with (
-        patch("text2cypher.finetuning.evaluate_model.load_model") as mock_load_model,
-        patch("text2cypher.finetuning.evaluate_model.compute_group_metrics") as mock_compute_metrics,
-        patch("text2cypher.finetuning.evaluate_model.calculate_average_latency", return_value=0.1),
-        patch("text2cypher.finetuning.evaluate_model.calculate_model_size_in_params", return_value=1234567)
+        patch("nba_game_recap_summarizer.finetuning.evaluate_model.load_model") as mock_load_model,
+        patch("nba_game_recap_summarizer.finetuning.evaluate_model.compute_group_metrics") as mock_compute_metrics,
+        patch("nba_game_recap_summarizer.finetuning.evaluate_model.calculate_average_latency", return_value=0.1),
+        patch("nba_game_recap_summarizer.finetuning.evaluate_model.calculate_model_size_in_params", return_value=1234567)
     ):
         # Mock model and metric result
         mock_model = MagicMock()

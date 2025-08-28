@@ -35,8 +35,8 @@ jobs:
 
       - name: Pre-destroy scale-down (ECS + ASG)
         env:
-          CLUSTER: text2cypher-${{ github.event.inputs.env }}-cluster
-          SERVICE: text2cypher-${{ github.event.inputs.env }}-v1-service
+          CLUSTER: nba_game_recap_summarizer-${{ github.event.inputs.env }}-cluster
+          SERVICE: nba_game_recap_summarizer-${{ github.event.inputs.env }}-v1-service
         run: |
           set -euxo pipefail
 
@@ -49,7 +49,7 @@ jobs:
 
           # 2) Find GPU ASGs for this env (handles multiple, if any)
           ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `text2cypher-''${{ github.event.inputs.env }}''-cluster`) && contains(AutoScalingGroupName, `gpu-asg`)].AutoScalingGroupName' \
+            --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `nba_game_recap_summarizer-''${{ github.event.inputs.env }}''-cluster`) && contains(AutoScalingGroupName, `gpu-asg`)].AutoScalingGroupName' \
             --output text)
 
           for ASG in $ASGS; do
@@ -90,6 +90,6 @@ jobs:
           # these only matter if your modules require them at plan time:
           TF_VAR_inference_image_uri:      ${{ env.ECR_REPOSITORY_URI }}:inference-${{ github.event.inputs.env }}-candidate
           TF_VAR_inference_image_v2_uri:   ${{ env.ECR_REPOSITORY_URI }}:inference-${{ github.event.inputs.env }}-candidate
-          TF_VAR_model_path:               s3://bl-portfolio-ml-sagemaker-${{ github.event.inputs.env }}/dummy
+          TF_VAR_model_path:               s3://nba-recap-summarization-model-${{ github.event.inputs.env }}/dummy
         run: |
           terraform destroy -auto-approve

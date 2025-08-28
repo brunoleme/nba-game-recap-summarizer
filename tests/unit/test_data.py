@@ -1,33 +1,26 @@
 import pytest
 import pandas as pd
 from datasets import Dataset
-from text2cypher.finetuning.data.notechat_dataset import NoteChatDataModule
-from text2cypher.finetuning.data.notechat_preprocessing import NoteChatDataPreprocessingModule
+from nba_game_recap_summarizer.finetuning.data.nba_recap_dataset import NBARecapDataModule
+from nba_game_recap_summarizer.finetuning.data.nba_recap_preprocessing import NBARecapDataPreprocessingModule
 
 source_data_folder = "tests/resources"
-source_data_path = "source_data/notechat_sample_dataset.csv"
+source_data_path = "source_data/game_recaps_with_summaries_sample.csv"
 preprocessed_output_data_folder = "tests/resources"
 preprocessed_input_data_folder = "tests/resources"
 env_folder = 'dev'
 
 def test_dataset_initialization() -> None:
-    dataset = NoteChatDataModule(model_name="t5-small", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, batch_size=2, max_length=128, )
-    assert dataset.model_name == "t5-small"
+    dataset = NBARecapDataModule(model_name="meta-llama/Llama-3.2-3B-Instruct", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, batch_size=2, max_length=128, )
+    assert dataset.model_name == "meta-llama/Llama-3.2-3B-Instruct"
     assert dataset.batch_size == 2
     assert dataset.max_length == 128
 
-def test_conversation_formatting() -> None:
-    dataset_preprocessing = NoteChatDataPreprocessingModule(model_name="t5-small", source_data_folder=source_data_folder, source_data_path=source_data_path, preprocessed_output_data_folder=preprocessed_output_data_folder, env_folder=env_folder)
-    conversation = "Doctor: Hello\nPatient: Hi"
-    formatted = dataset_preprocessing.format_conversation(conversation)
-    expected = "summarize: <conversation><speaker>Doctor:</speaker>Hello <speaker>Patient:</speaker>Hi</conversation>"
-    assert formatted.replace(" ", "") == expected.replace(" ", "")
-
 def test_preprocess_function() -> None:
-    dataset_preprocessing = NoteChatDataPreprocessingModule(model_name="t5-small", source_data_folder=source_data_folder, source_data_path=source_data_path, preprocessed_output_data_folder=preprocessed_output_data_folder, env_folder=env_folder)
+    dataset_preprocessing = NBARecapDataPreprocessingModule(model_name="meta-llama/Llama-3.2-3B-Instruct", source_data_folder=source_data_folder, source_data_path=source_data_path, preprocessed_output_data_folder=preprocessed_output_data_folder, env_folder=env_folder)
     examples = {
-        "conversation": ["Doctor: Hello\nPatient: Hi"],
-        "data": ["Patient visited for checkup"],
+        "game_recap": ["Tonight in the oppening game, Lakers beats Suns in the overtime with a Bryant game winner."],
+        "game_recap_summary": ["Lakers beats Suns"],
     }
     result = dataset_preprocessing.preprocess_function(
         examples,
@@ -39,17 +32,8 @@ def test_preprocess_function() -> None:
     assert "labels" in result
     assert "source_lengths" in result
     assert "target_lengths" in result
-    assert "conversation" in result
-    assert "clinical_note" in result
-
-@pytest.mark.parametrize("token", [
-    "<conversation>", "</conversation>",
-    "<note>", "</note>",
-    "<speaker>Doctor:</speaker>", "<speaker>Patient:</speaker>",
-])
-def test_special_tokens_exist(token):
-    tokenizer = NoteChatDataModule(model_name="t5-small", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder).tokenizer
-    assert tokenizer.convert_tokens_to_ids(token) != tokenizer.unk_token_id
+    assert "game_recap" in result
+    assert "game_recap_summary" in result
 
 def test_data_splitting_with_mocker(mocker) -> None:
     dummy_data = {
@@ -61,7 +45,7 @@ def test_data_splitting_with_mocker(mocker) -> None:
     dummy_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     mocker.patch("datasets.load_dataset", return_value={"train": dummy_ds})
 
-    module = NoteChatDataModule(model_name="t5-small", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, train_samples=10, val_samples=2, test_samples=2)
+    module = NBARecapDataModule(model_name="meta-llama/Llama-3.2-3B-Instruct", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, train_samples=10, val_samples=2, test_samples=2)
     module.prepare_data()
     module.setup()
 
@@ -79,15 +63,10 @@ def test_dataloader_creation_with_mock(mocker) -> None:
     dummy_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     mocker.patch("datasets.load_dataset", return_value={"train": dummy_ds})
 
-    module = NoteChatDataModule(model_name="t5-small", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, train_samples=5)
+    module = NBARecapDataModule(model_name="meta-llama/Llama-3.2-3B-Instruct", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, train_samples=5)
     module.setup()
 
     loader = module.train_dataloader()
     batch = next(iter(loader))
     assert "input_ids" in batch
     assert "labels" in batch
-
-def test_formatting_with_unknown_prefix():
-    conversation = "Nurse: Hello"
-    formatted = NoteChatDataPreprocessingModule.format_conversation(conversation)
-    assert formatted == "summarize: <conversation></conversation>"

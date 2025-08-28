@@ -1,35 +1,35 @@
 import pytest
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-from text2cypher.finetuning.models.t5_model import T5NoteGenerationModel
+from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
 
 
 @pytest.fixture
-def default_t5_model() -> T5NoteGenerationModel:
-    return T5NoteGenerationModel(
-        model_name="t5-small",
-        model_type="t5",
+def default_llama_model() -> LlamaRecapSummarizationModel:
+    return LlamaRecapSummarizationModel(
+        model_name="meta-llama/Llama-3.2-3B-Instruct",
+        model_type="llama",
         use_quantization=False,
     )
 
 @pytest.mark.parametrize(
     "model_name, model_type, use_quantization",
     [
-        ("t5-small", "t5", False),
-        ("t5-base", "t5", False),
-        ("t5-nonexistent", "t5", False),
+        ("meta-llama/Llama-3.2-3B-Instruct", "llama", False),
+        ("meta-llama/Llama-3.2-3B-Instruct", "llama", True),
+        ("llama-nonexistent", "llama", False),
     ]
 )
-def test_t5_model_initialization(model_name, model_type, use_quantization):
-    if model_name == "t5-nonexistent":
+def test_llama_model_initialization(model_name, model_type, use_quantization):
+    if model_name == "llama-nonexistent":
         with pytest.raises(Exception):
-            T5NoteGenerationModel(
+            LlamaRecapSummarizationModel(
                 model_name=model_name,
                 model_type=model_type,
                 use_quantization=use_quantization
             )
     else:
-        model = T5NoteGenerationModel(
+        model = LlamaRecapSummarizationModel(
             model_name=model_name,
             model_type=model_type,
             use_quantization=use_quantization
@@ -41,15 +41,15 @@ def test_t5_model_initialization(model_name, model_type, use_quantization):
 
 
 
-def test_model_generate_note(default_t5_model) -> None:
-    conversation = "Doctor: How are you feeling?\nPatient: I have a headache"
-    note = default_t5_model.generate_note(conversation, max_length=50)
-    assert isinstance(note, str)
-    assert len(note) > 0
+def test_model_summarize_recap(default_llama_model) -> None:
+    game_recap = "Lakers beats Suns in the overtime with a Bryant game winner."
+    game_recap_summary = default_llama_model.summarize_recap(game_recap, max_length=50)
+    assert isinstance(game_recap_summary, str)
+    assert len(game_recap_summary) > 0
 
 class DummyDataset(Dataset):
     def __init__(self, tokenizer):
-        self.enc = tokenizer("summarize: Hello", return_tensors="pt", padding=True)
+        self.enc = tokenizer("summarize: Tonight", return_tensors="pt", padding=True)
     def __len__(self):
         return 2
     def __getitem__(self, idx):
@@ -58,40 +58,23 @@ class DummyDataset(Dataset):
             "attention_mask": self.enc["attention_mask"].squeeze(0),
         }
 
-def test_generate_notes_batch(default_t5_model) -> None:
-    dataset = DummyDataset(default_t5_model.tokenizer)
+def test_model_summarize_recaps(default_llama_model) -> None:
+    dataset = DummyDataset(default_llama_model.tokenizer)
     dataloader = DataLoader(dataset, batch_size=1)
 
-    notes = default_t5_model.generate_notes(dataloader, max_length=20)
-    assert isinstance(notes, list)
-    assert all(isinstance(n, str) for n in notes)
+    game_recap_summaries = default_llama_model.summarize_recaps(dataloader, max_length=20)
+    assert isinstance(game_recap_summaries, list)
+    assert all(isinstance(n, str) for n in game_recap_summaries)
 
-def test_prefill_and_decode(default_t5_model) -> None:
-    conv = "Doctor: Are you sleeping well?\nPatient: Not really"
-    encoded = default_t5_model.prefill(conv)
-
-    assert "encoder_outputs" in encoded
-    assert hasattr(encoded["encoder_outputs"], "last_hidden_state")
-    assert "attention_mask" in encoded
-
-    decoded = default_t5_model.decode(
-        encoded["encoder_outputs"],
-        encoded["attention_mask"],
-        max_length=50
-    )
-    assert isinstance(decoded, str)
-    assert len(decoded) > 0
-    assert len(decoded.split()) <= 50
-
-def test_generate_note_with_empty_input(default_t5_model):
-    note = default_t5_model.generate_note("", max_length=50)
-    assert isinstance(note, str)
+def test_summarize_recap_with_empty_input(default_llama_model):
+    game_recap_summary = default_llama_model.summarize_recap("", max_length=50)
+    assert isinstance(game_recap_summary, str)
 
 @pytest.mark.parametrize("peft_method", ["lora", "prompt_tuning"])
-def test_t5_model_with_peft(peft_method):
-    model = T5NoteGenerationModel(
-        model_name="t5-small",
-        model_type="t5",
+def test_llama_model_with_peft(peft_method):
+    model = LlamaRecapSummarizationModel(
+        model_name="meta-llama/Llama-3.2-3B-Instruct",
+        model_type="llama",
         peft_method=peft_method,
         use_quantization=False
     )
@@ -100,7 +83,7 @@ def test_t5_model_with_peft(peft_method):
     assert model.peft_config is not None
     assert hasattr(model.model, "base_model")
 
-    conversation = "Doctor: Do you have any allergies?\nPatient: Just pollen."
-    note = model.generate_note(conversation, max_length=50)
-    assert isinstance(note, str)
-    assert len(note) > 0
+    game_recap = "Lakers beats Suns in the overtime with a Bryant game winner."
+    game_recap_summary = model.summarize_recap(game_recap, max_length=50)
+    assert isinstance(game_recap_summary, str)
+    assert len(game_recap_summary) > 0

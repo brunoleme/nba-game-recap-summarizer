@@ -20,5 +20,5 @@ ENV PYTHONPATH=/app
 EXPOSE 8000
 
 # Run FastAPI app
-CMD ["uvicorn", "text2cypher.api.inference:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "nba_game_recap_summarizer.api.inference:app", "--host", "0.0.0.0", "--port", "8000"]
 

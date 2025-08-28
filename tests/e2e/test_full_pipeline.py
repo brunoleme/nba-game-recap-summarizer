@@ -1,9 +1,9 @@
 import os
 from pathlib import Path
 import hydra
-from text2cypher.finetuning.preprocessing import preprocessing
-from text2cypher.finetuning.train import train
-from text2cypher.finetuning.evaluate_model import evaluate_model
+from nba_game_recap_summarizer.finetuning.preprocessing import preprocessing
+from nba_game_recap_summarizer.finetuning.train import train
+from nba_game_recap_summarizer.finetuning.evaluate_model import evaluate_model
 
 def test_full_pipeline():
     config_name = f"config.test"

@@ -103,7 +103,7 @@ jobs:
           PIPELINE_RUN_ID=$(uuidgen | tr 'A-Z' 'a-z')
           # publish for downstream jobs
           echo "pipeline_run_id=$PIPELINE_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "model_path=s3://bl-portfolio-ml-sagemaker-${{ github.ref_name }}/output/artifacts/${PIPELINE_RUN_ID}/checkpoints/best_model.ckpt" >> "$GITHUB_OUTPUT"
+          echo "model_path=s3://nba-recap-summarization-model-${{ github.ref_name }}/output/artifacts/${PIPELINE_RUN_ID}/checkpoints/best_model.ckpt" >> "$GITHUB_OUTPUT"
 
       - name: Trigger SageMaker Pipeline
         run: |

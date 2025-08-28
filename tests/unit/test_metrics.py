@@ -1,12 +1,12 @@
 import pytest
-from text2cypher.finetuning.eval import metrics
+from nba_game_recap_summarizer.finetuning.eval import metrics
 import torch
 
 @pytest.fixture
 def dummy_data():
     predictions = ["The patient has a mild fever."]
     references = ["The patient has a mild fever."]
-    instructions = ["Summarize the conversation about the patient's symptoms."]
+    instructions = ["Summarize the game recap about the patient's symptoms."]
     return predictions, references, instructions
 
 @pytest.mark.parametrize("metric_fn", [
@@ -29,7 +29,7 @@ def test_classical_metrics(metric_fn, dummy_data):
 ])
 def test_llm_metrics_with_mock(mocker, llm_metric_fn, dummy_data):
     mock_eval = mocker.patch(
-        "text2cypher.finetuning.eval.metrics.evaluate_with_grader",
+        "nba_game_recap_summarizer.finetuning.eval.metrics.evaluate_with_grader",
         return_value=4.2
     )
     pred, ref, instr = dummy_data
