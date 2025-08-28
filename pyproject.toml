@@ -5,18 +5,15 @@ description = "NBA game recap summarization with Llama and PEFT"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-  # --- Core ML stack (versions known to work together) ---
   "torch>=2.2,<2.3",            # 2.2.x has device_mesh etc.
   "torchvision>=0.17,<0.18",
   "torchaudio>=2.2,<2.3",
-  "transformers>=4.42,<4.43",
-  "accelerate>=0.33,<0.34",
+  "transformers>=4.45.0",
+  "accelerate>=0.33.0",
   "peft>=0.11,<0.12",
   "datasets>=2.20,<2.21",
   "tokenizers>=0.19,<0.20",
-  "safetensors>=0.4,<0.5",
-
-  # --- Your existing deps (left mostly as-is) ---
+  "safetensors>=0.4.3",
   "pytorch-lightning>=2.0,<3.0",
   "evaluate",
   "pydantic>=2",
