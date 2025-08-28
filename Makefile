@@ -33,6 +33,7 @@ install:
 	pip install -e .[dev]
 
 test:
+	rm -f .coverage .coverage.* || true
 	PYTHONPATH=. ENV=$(ENV) pytest tests/ --cov=src --cov-report=term-missing -s
 
 lint:

@@ -6,7 +6,6 @@ from peft import get_peft_model, prepare_model_for_kbit_training
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from huggingface_hub import login
 
 from .base_model import BaseRecapSummarizationModel
 
@@ -41,7 +40,6 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         peft_method: Optional[str] = None,
         **kwargs,
     ):
-        login(token=os.environ["HF_TOKEN"])
         logger.info(f"Initializing tokenizer with model: {model_name}")
 
         name = model_name
@@ -129,6 +127,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 **enc,
                 max_new_tokens=max_length,
                 do_sample=False,
+                temperature=None,
+                top_p=None,
+                top_k=None,
+                typical_p=None,
                 eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                 pad_token_id=self.tokenizer.pad_token_id,
                 no_repeat_ngram_size=3,
@@ -179,6 +181,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         **inputs,
                         max_new_tokens=max_length,
                         do_sample=False,
+                        temperature=None,
+                        top_p=None,
+                        top_k=None,
+                        typical_p=None,
                         eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                         pad_token_id=self.tokenizer.pad_token_id,
                         no_repeat_ngram_size=3,
