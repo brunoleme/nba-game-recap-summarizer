@@ -96,22 +96,24 @@ class NBARecapDataModule(pl.LightningDataModule):
         val_filename = filename.replace(".csv", "_val.parquet")
         test_filename = filename.replace(".csv", "_test.parquet")
 
+        source_data_columns = ['date', 'home_team', 'away_team', 'query', 'recap_link', 'game_recap', 'game_recap_summary']
+
         input_train_path = f"{self.preprocessed_input_data_folder}/preprocessed/{train_filename}"
         logger.info(f"Reading train parquet data from S3: {input_train_path}")
         self.train_dataset = load_dataset("parquet", data_files=input_train_path)["train"]
-        self.train_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.train_dataset.set_format(type="torch", columns=source_data_columns)
         logger.info(f"Loaded {len(self.train_dataset)} train rows from S3.")
 
         input_val_path = f"{self.preprocessed_input_data_folder}/preprocessed/{val_filename}"
         logger.info(f"Reading valid parquet data from S3: {input_val_path}")
         self.val_dataset = load_dataset("parquet", data_files=input_val_path)["train"]
-        self.val_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.val_dataset.set_format(type="torch", columns=source_data_columns)
         logger.info(f"Loaded {len(self.val_dataset)} valid rows from S3.")
 
         input_test_path = f"{self.preprocessed_input_data_folder}/preprocessed/{test_filename}"
         logger.info(f"Reading test parquet data from S3: {input_test_path}")
         self.test_dataset = load_dataset("parquet", data_files=input_test_path)["train"]
-        self.test_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.test_dataset.set_format(type="torch", columns=source_data_columns)
         logger.info(f"Loaded {len(self.test_dataset)} test rows from S3.")
 
 

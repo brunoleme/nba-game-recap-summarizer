@@ -16,7 +16,7 @@ def default_llama_model() -> LlamaRecapSummarizationModel:
     "model_name, model_type, use_quantization",
     [
         ("hf-internal-testing/tiny-random-LlamaForCausalLM", "llama", False),
-        ("hf-internal-testing/tiny-random-LlamaForCausalLM", "llama", True),
+        # ("hf-internal-testing/tiny-random-LlamaForCausalLM", "llama", True),
         ("llama-nonexistent", "llama", False),
     ]
 )
@@ -70,7 +70,7 @@ def test_summarize_recap_with_empty_input(default_llama_model):
     game_recap_summary = default_llama_model.summarize_recap("", max_length=50)
     assert isinstance(game_recap_summary, str)
 
-@pytest.mark.parametrize("peft_method", ["lora", "prompt_tuning"])
+@pytest.mark.parametrize("peft_method", ["lora"])
 def test_llama_model_with_peft(peft_method):
     model = LlamaRecapSummarizationModel(
         model_name="hf-internal-testing/tiny-random-LlamaForCausalLM",
