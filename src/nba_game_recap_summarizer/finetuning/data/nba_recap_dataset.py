@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from datasets import load_dataset
 from loguru import logger
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from nba_game_recap_summarizer.finetuning.utils.text_utils import replace_first_dash
 
@@ -16,7 +16,7 @@ import torch
 
 @dataclass
 class CausalLMCollator:
-    tokenizer
+    tokenizer: PreTrainedTokenizerBase
     pad_to_multiple_of: int = 8
     label_pad_token_id: int = -100
 
