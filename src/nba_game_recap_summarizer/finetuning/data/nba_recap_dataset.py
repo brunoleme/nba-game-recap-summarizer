@@ -8,8 +8,6 @@ from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from nba_game_recap_summarizer.finetuning.utils.text_utils import replace_first_dash
-
 from dataclasses import dataclass
 from typing import List, Dict
 import torch
@@ -79,7 +77,7 @@ class NBARecapDataModule(pl.LightningDataModule):
 
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         logger.info(f"Initializing tokenizer with model: {model_name}")
-        self.tokenizer = AutoTokenizer.from_pretrained(replace_first_dash(model_name), use_fast=False)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
 
         if getattr(self.tokenizer, "pad_token", None) is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token

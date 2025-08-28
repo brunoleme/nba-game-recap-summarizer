@@ -7,7 +7,6 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from nba_game_recap_summarizer.finetuning.utils.text_utils import replace_first_dash
 from .base_model import BaseRecapSummarizationModel
 
 
@@ -41,7 +40,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         peft_method: Optional[str] = None,
         **kwargs,
     ):
-        name = replace_first_dash(model_name)
+        name = model_name
 
         # Tokenizer first (so we can pass ids to model if needed)
         tokenizer = AutoTokenizer.from_pretrained(name, use_fast=False)
