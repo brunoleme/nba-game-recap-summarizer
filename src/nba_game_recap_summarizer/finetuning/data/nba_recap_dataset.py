@@ -7,6 +7,7 @@ from datasets import load_dataset
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from huggingface_hub import login
 
 from dataclasses import dataclass
 from typing import List, Dict
@@ -76,6 +77,7 @@ class NBARecapDataModule(pl.LightningDataModule):
         self.shuffle_seed = shuffle_seed
 
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        login(token=os.environ["HF_TOKEN"])
         logger.info(f"Initializing tokenizer with model: {model_name}")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
 

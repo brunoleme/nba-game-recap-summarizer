@@ -6,6 +6,7 @@ from peft import get_peft_model, prepare_model_for_kbit_training
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from huggingface_hub import login
 
 from .base_model import BaseRecapSummarizationModel
 
@@ -40,6 +41,9 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         peft_method: Optional[str] = None,
         **kwargs,
     ):
+        login(token=os.environ["HF_TOKEN"])
+        logger.info(f"Initializing tokenizer with model: {model_name}")
+
         name = model_name
 
         # Tokenizer first (so we can pass ids to model if needed)
