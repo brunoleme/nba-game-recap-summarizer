@@ -73,7 +73,7 @@ def test_summarize_recap_with_empty_input(default_llama_model):
 @pytest.mark.parametrize("peft_method", ["lora", "prompt_tuning"])
 def test_llama_model_with_peft(peft_method):
     model = LlamaRecapSummarizationModel(
-        model_name="meta-llama/Llama-3.2-3B-Instruct",
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
         model_type="llama",
         peft_method=peft_method,
         use_quantization=False
