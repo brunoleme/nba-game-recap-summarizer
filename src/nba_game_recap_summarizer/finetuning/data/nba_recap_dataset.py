@@ -1,6 +1,6 @@
 import os
 from functools import partial
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 import pytorch_lightning as pl
 from datasets import load_dataset
