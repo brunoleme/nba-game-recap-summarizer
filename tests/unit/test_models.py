@@ -7,7 +7,7 @@ from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSu
 @pytest.fixture
 def default_llama_model() -> LlamaRecapSummarizationModel:
     return LlamaRecapSummarizationModel(
-        model_name="meta-llama/Llama-3.2-3B-Instruct",
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
         model_type="llama",
         use_quantization=False,
     )
@@ -15,8 +15,8 @@ def default_llama_model() -> LlamaRecapSummarizationModel:
 @pytest.mark.parametrize(
     "model_name, model_type, use_quantization",
     [
-        ("meta-llama/Llama-3.2-3B-Instruct", "llama", False),
-        ("meta-llama/Llama-3.2-3B-Instruct", "llama", True),
+        ("meta-llama/Llama-3.2-1B-Instruct", "llama", False),
+        ("meta-llama/Llama-3.2-1B-Instruct", "llama", True),
         ("llama-nonexistent", "llama", False),
     ]
 )
