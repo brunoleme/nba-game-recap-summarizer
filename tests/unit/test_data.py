@@ -16,14 +16,14 @@ def test_dataset_initialization() -> None:
     assert dataset.max_length == 128
 
 def test_preprocess_function() -> None:
-    dataset_preprocessing = NBARecapDataPreprocessingModule(model_name="hf-internal-testing/tiny-random-LlamaForCausalLM", source_data_folder=source_data_folder, source_data_path=source_data_path, preprocessed_output_data_folder=preprocessed_output_data_folder, env_folder=env_folder)
+    dataset = NBARecapDataModule(model_name="hf-internal-testing/tiny-random-LlamaForCausalLM", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, batch_size=2, max_length=128, )
     examples = {
         "game_recap": ["Tonight in the oppening game, Lakers beats Suns in the overtime with a Bryant game winner."],
         "game_recap_summary": ["Lakers beats Suns"],
     }
-    result = dataset_preprocessing.preprocess_function(
+    result = dataset.preprocess_function(
         examples,
-        dataset_preprocessing.tokenizer,
+        dataset.tokenizer,
         max_source_length=128,
         max_target_length=128,
     )
