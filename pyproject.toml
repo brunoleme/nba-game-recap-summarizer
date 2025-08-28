@@ -5,14 +5,14 @@ description = "NBA game recap summarization with Llama and PEFT"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-  "torch>=2.2,<2.3",            # 2.2.x has device_mesh etc.
+  "torch>=2.2,<2.3",
   "torchvision>=0.17,<0.18",
   "torchaudio>=2.2,<2.3",
-  "transformers>=4.45.0",
+  "transformers>=4.53,<4.56",
   "accelerate>=0.33.0",
   "peft>=0.11,<0.12",
   "datasets>=2.20,<2.21",
-  "tokenizers>=0.19,<0.20",
+  "tokenizers>=0.21,<0.22",
   "safetensors>=0.4.3",
   "pytorch-lightning>=2.0,<3.0",
   "evaluate",
@@ -36,7 +36,8 @@ dependencies = [
   "uvicorn[standard]",
   "requests",
   "psycopg2-binary",
-  "huggingface_hub",
+  "huggingface_hub>=0.25",
+  "bitsandbytes>=0.43.1"
 ]
 
 [project.optional-dependencies]
