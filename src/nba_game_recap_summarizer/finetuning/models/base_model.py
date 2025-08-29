@@ -225,18 +225,34 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         return loss
 
 
-    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
+    # def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
+    #     outputs = self(**batch)
+    #     loss = outputs.loss
+
+    #     self.log("val_loss", loss, prog_bar=True)
+    #     self.validation_step_outputs.append(loss.detach().cpu())
+
+    def validation_step(self, batch, batch_idx):
         outputs = self(**batch)
         loss = outputs.loss
-
-        self.log("val_loss", loss, prog_bar=True)
+        # keep per-step if you want, but make sure on_epoch=True is set:
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
         self.validation_step_outputs.append(loss.detach().cpu())
 
 
-    def on_validation_epoch_end(self) -> None:
-        avg_val_loss = torch.stack(self.validation_step_outputs).mean()
-        self.log("epoch_val_loss", avg_val_loss)
+    # def on_validation_epoch_end(self) -> None:
+    #     avg_val_loss = torch.stack(self.validation_step_outputs).mean()
+    #     self.log("epoch_val_loss", avg_val_loss)
 
+    #     self.validation_step_outputs.clear()
+
+    def on_validation_epoch_end(self):
+        if self.validation_step_outputs:
+            avg = torch.stack(self.validation_step_outputs).mean()
+        else:
+            avg = torch.tensor(0.0, device=self.device)
+        self.log("val_loss", avg, prog_bar=True, on_epoch=True, sync_dist=False)   # <= important
+        self.log("epoch_val_loss", avg, on_epoch=True, sync_dist=False)            # optional alias
         self.validation_step_outputs.clear()
 
     def on_train_epoch_end(self) -> None:
@@ -244,6 +260,15 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         self.log("epoch_train_loss", avg_train_loss)
 
         self.training_step_outputs.clear()
+
+    def on_fit_end(self):
+        try:
+            if self.trainer is not None:
+                # If present, keep whatever we last logged; otherwise set a safe default
+                val = self.trainer.callback_metrics.get("val_loss", torch.tensor(0.0))
+                self.trainer.callback_metrics["val_loss"] = val
+        except Exception:
+            pass
 
     def configure_optimizers(self):
         optimizer = AdamW(
