@@ -20,7 +20,13 @@ class CausalLMCollator:
 
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         labels = [f["labels"] for f in features]
-        inputs = [{k: v for k, v in f.items() if k != "labels"} for f in features]
+        allowed = {"input_ids", "attention_mask"}
+        inputs = []
+        for f in features:
+            item = {k: v for k, v in f.items() if k in allowed}
+            if not item:
+                raise ValueError("Batch not tokenized: expected 'input_ids' (and 'attention_mask').")
+            inputs.append(item)
 
         batch = self.tokenizer.pad(
             inputs,
