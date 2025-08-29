@@ -107,6 +107,8 @@ jobs:
             ENV=prod \
             WANDB_API_KEY=${{ env.WANDB_API_KEY }} \
             OPENAI_API_KEY=${{ env.OPENAI_API_KEY }} \
+            HF_TOKEN=${{ env.HF_TOKEN }} \
+            HUGGINGFACEHUB_API_TOKEN=${{ env.HUGGINGFACEHUB_API_TOKEN }} \
             PREPROCESSING_INSTANCE_TYPE=${{ env.PREPROCESSING_INSTANCE_TYPE }} \
             TRAINING_INSTANCE_TYPE=${{ env.TRAINING_INSTANCE_TYPE }} \
             EVALUATION_INSTANCE_TYPE=${{ env.EVALUATION_INSTANCE_TYPE }} \

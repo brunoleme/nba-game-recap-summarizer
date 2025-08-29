@@ -20,6 +20,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
     env_param = ParameterString(name="Environment", default_value="dev")
     wandb_api_key = ParameterString(name="WandbApiKey", default_value="")
     open_ai_key = ParameterString(name="OpenAIApiKey", default_value="")
+    hf_token = ParameterString(name="HFToken", default_value="")
+    huggingfacehub_api_token = ParameterString(name="HuggingFaceHubApiToken", default_value="")
     image_uri = ParameterString(name="ImageURI", default_value="")
     inference_image_uri = ParameterString(name="InferenceImageURI", default_value="")
     preprocessing_instance_type = ParameterString(name="PreprocessingInstanceType", default_value="ml.m5.large")
@@ -46,6 +48,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         env={
             "ENV": env_param,
             "WANDB_API_KEY": wandb_api_key,
+            "HF_TOKEN": hf_token,
+            "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
         },
     )
@@ -73,6 +77,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         env={
             "ENV": env_param,
             "WANDB_API_KEY": wandb_api_key,
+            "HF_TOKEN": hf_token,
+            "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
         },
     )
@@ -105,6 +111,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             "ENV": env_param,
             "WANDB_API_KEY": wandb_api_key,
             "OPENAI_API_KEY": open_ai_key,
+            "HF_TOKEN": hf_token,
+            "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
         },
     )
@@ -193,6 +201,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             env_param,
             wandb_api_key,
             open_ai_key,
+            hf_token,
+            huggingfacehub_api_token,
             image_uri,
             inference_image_uri,
             preprocessing_instance_type,

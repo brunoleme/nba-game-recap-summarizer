@@ -114,6 +114,8 @@ sagemaker-pipeline-trigger:
 		--env $(ENV) \
 		--wandb-api-key $(WANDB_API_KEY) \
 		--openai-api-key $(OPENAI_API_KEY) \
+		--hf-token $(HF_TOKEN) \
+		--huggingfacehub-api-token $(HUGGINGFACEHUB_API_TOKEN) \
 		--preprocessing-instance-type $(PREPROCESSING_INSTANCE_TYPE) \
 		--preprocessing-instance-count 1 \
 		--training-instance-type $(TRAINING_INSTANCE_TYPE) \
