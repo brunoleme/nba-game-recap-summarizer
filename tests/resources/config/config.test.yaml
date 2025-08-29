@@ -28,13 +28,13 @@ training:
   gradient_clip_val: 1.0
   max_epochs: 3
   num_workers: 4
-  model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
+  model_artifact_dir: "tests/resources/artifacts"
   devices: "auto"
 
 data:
   train_samples: 10
-  val_samples: 2
-  test_samples: 2
+  val_samples: 5
+  test_samples: 5
   shuffle: false
   shuffle_seed: 42
   train_split: 0.5

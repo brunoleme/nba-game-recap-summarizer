@@ -82,6 +82,8 @@ def train(cfg: DictConfig):
         gradient_clip_val=cfg.training.gradient_clip_val,
         precision=cfg.training.precision,   # e.g. "bf16-mixed" or "16-mixed"
         accumulate_grad_batches=cfg.training.accumulate_grad_batches,
+        val_check_interval=0.5,  # Force validation every 50% of training steps
+        check_val_every_n_epoch=1,  # Also validate every epoch
     )
     if getattr(cfg.training, "gradient_checkpointing", False):
         try:
@@ -91,6 +93,7 @@ def train(cfg: DictConfig):
             logger.warning(f"Could not enable gradient checkpointing: {e}")
 
     logger.info("Starting model training")
+    trainer.fit(model, datamodule)
     logger.success("Training completed successfully")
 
     logger.info("Saving model in hf format")

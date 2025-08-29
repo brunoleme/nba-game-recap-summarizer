@@ -1,0 +1,1 @@
+{"pipeline_run_id":"pipeline_id","rouge_score":0.0,"bleu_score":0.0,"bert_score":0.847899,"factual_consistency":3.0,"relevance":5.0,"completeness":3.0,"conciseness":3.666667,"clarity":3.0,"model_size_params":1234567,"avg_latency_sec":0.1}
