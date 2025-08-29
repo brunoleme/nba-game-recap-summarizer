@@ -234,19 +234,14 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
 
 
     def on_validation_epoch_end(self) -> None:
-        if len(self.validation_step_outputs):
-            avg_val_loss = torch.stack(self.validation_step_outputs).mean()
-        else:
-            avg_val_loss = torch.tensor(0.0, device=self.device)
-        self.log("val_loss", avg_val_loss, prog_bar=True)
+        avg_val_loss = torch.stack(self.validation_step_outputs).mean()
         self.log("epoch_val_loss", avg_val_loss)
+
         self.validation_step_outputs.clear()
 
     def on_train_epoch_end(self) -> None:
-        if len(self.training_step_outputs):
-            avg_train_loss = torch.stack(self.training_step_outputs).mean()
-            self.log("train_loss", avg_train_loss, prog_bar=True)
-            self.log("epoch_train_loss", avg_train_loss)
+        avg_train_loss = torch.stack(self.training_step_outputs).mean()
+        self.log("epoch_train_loss", avg_train_loss)
 
         self.training_step_outputs.clear()
 
