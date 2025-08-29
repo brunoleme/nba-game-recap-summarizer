@@ -6,7 +6,7 @@ logging:
 model:
   type: "llama"
   name: "hf-internal-testing/tiny-random-LlamaForCausalLM"
-  quantization: true
+  quantization: false
   quantization_type: "4bit"
   peft_method: "lora"
   max_length: 4096
