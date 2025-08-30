@@ -84,6 +84,10 @@ def train(cfg: DictConfig):
         accumulate_grad_batches=cfg.training.accumulate_grad_batches,
         val_check_interval=0.5,  # Force validation every 50% of training steps
         check_val_every_n_epoch=1,  # Also validate every epoch
+        # Memory optimization settings
+        enable_progress_bar=True,
+        enable_model_summary=False,  # Disable to save memory
+        log_every_n_steps=10,  # Reduce logging frequency
     )
     if getattr(cfg.training, "gradient_checkpointing", False):
         try:

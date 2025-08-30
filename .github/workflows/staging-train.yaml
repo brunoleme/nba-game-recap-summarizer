@@ -113,7 +113,8 @@ jobs:
             TRAINING_INSTANCE_TYPE=${{ env.TRAINING_INSTANCE_TYPE }} \
             EVALUATION_INSTANCE_TYPE=${{ env.EVALUATION_INSTANCE_TYPE }} \
             DEPLOYMENT_INSTANCE_TYPE=${{ env.DEPLOYMENT_INSTANCE_TYPE }} \
-            LAMBDA_DEPLOYMENT_ARN=arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.AWS_ACCOUNT_ID }}:function:sagemaker-deployer
+            LAMBDA_DEPLOYMENT_ARN=arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.AWS_ACCOUNT_ID }}:function:sagemaker-deployer \
+            PROJECT_CONFIG=config.staging
 
       - name: Output SageMaker Pipeline Execution ARN
         run: echo "Pipeline triggered successfully"

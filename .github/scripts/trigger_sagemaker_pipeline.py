@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument("--evaluation-instance-type", default="ml.m5.large", help="Instance type")
     parser.add_argument("--evaluation-instance-count", type=int, default=1)
     parser.add_argument("--deployment-instance-type", default="ml.m5.large", help="Instance type")
+    parser.add_argument("--project-config", help="Project configuration to use (e.g., config.dev, config.staging, config.prod)")
     return parser.parse_args()
 
 
@@ -39,6 +40,7 @@ def main():
             # "RoleARN": args.role_arn,
             # "JobPrefixName": "nba_game_recap_summarizer",
             "Environment": args.env,
+            "ProjectConfig": args.project_config if args.project_config else f"config.{args.env}",  # Use provided config or environment-specific default
             "WandbApiKey": args.wandb_api_key,
             "OpenAIApiKey": args.openai_api_key,
             "HFToken": args.hf_token,

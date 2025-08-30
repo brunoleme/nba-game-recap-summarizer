@@ -20,3 +20,8 @@ RUN uv pip install --system -e . --no-deps
 
 # Set environment variable for Python module resolution
 ENV PYTHONPATH=/app
+
+# Memory optimization environment variables
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+ENV CUDA_LAUNCH_BLOCKING=1
+ENV OMP_NUM_THREADS=1
