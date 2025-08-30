@@ -9,8 +9,11 @@ RUN pip install --upgrade pip && \
 # Copy project files
 COPY . .
 
-# Install project dependencies in editable mode
-RUN uv pip install --system -e .
+# Install SageMaker-specific dependencies
+RUN uv pip install --system -r requirements-sagemaker.txt
+
+# Install project in editable mode (without dependencies)
+RUN uv pip install --system -e . --no-deps
 
 # Optional: install extra tools if needed (e.g., testing, linting)
 # RUN uv pip install pytest ruff black mypy
