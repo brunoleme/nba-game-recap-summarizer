@@ -24,8 +24,8 @@ def test_preprocess_function() -> None:
     result = dataset.preprocess_function(
         examples,
         dataset.tokenizer,
-        max_source_length=128,
-        max_target_length=128,
+        max_source_length=128,  # Keep test values small
+        max_target_length=128,  # Keep test values small
     )
     assert "input_ids" in result
     assert "labels" in result

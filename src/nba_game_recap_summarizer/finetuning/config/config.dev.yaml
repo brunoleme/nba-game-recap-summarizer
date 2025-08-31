@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 4096
+  max_length: 2048  # Reduced from 4096 to save memory
 
 lora:
   r: 8
@@ -18,8 +18,8 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 4  # Increased for better GPU utilization
-  accumulate_grad_batches: 1  # No need for accumulation with larger batch size
+  batch_size: 1  # Reduced to 1 to fit in GPU memory
+  accumulate_grad_batches: 4  # Effective batch size = 1 * 4 = 4
   learning_rate: 1e-5
   warmup_steps: 50  # Reduced for small dataset
   weight_decay: 0.0
@@ -27,10 +27,10 @@ training:
   precision: "16-mixed"        # if your trainer exposes this; T4 => fp16
   gradient_clip_val: 1.0
   max_epochs: 3
-  num_workers: 4  # Increased for better data loading
+  num_workers: 2  # Reduced to save memory
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
-  gradient_checkpointing: false  # Disabled for small dataset (overhead > benefit)
+  gradient_checkpointing: true  # Enabled to save memory
 
 data:
   train_samples: 20  # Use -1 for all training data

@@ -55,9 +55,9 @@ class NBARecapDataModule(pl.LightningDataModule):
         env_folder: str,
         model_name: str,
         batch_size: int = 8,
-        max_length: int = 4096,
-        max_source_length: int = 3072,
-        max_target_length: int = 1024,
+        max_length: int = 2048,
+        max_source_length: int = 1536,  # Reduced from 3072 to save memory
+        max_target_length: int = 512,   # Reduced from 1024 to save memory
         num_workers: int = 4,
         train_samples: int = -1,
         val_samples: int = -1,

@@ -105,7 +105,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         Builds a prompt, generates continuation, then strips the prompt.
         """
         if max_length is None:
-            max_length = 3072
+            max_length = 2048
 
         logger.info("Generating game recap summary(LLaMA)")
         logger.debug(f"Input game_recap length: {len(game_recap)}")
@@ -144,7 +144,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
     # ---------- batch generation ----------
     def summarize_recaps(self, dataloader: DataLoader, max_length: Optional[int] = None) -> List[str]:
         if max_length is None:
-            max_length = 3076
+            max_length = 2048
 
         logger.info("Generating recap summaries for batch (LLaMA)")
         results: List[str] = []
