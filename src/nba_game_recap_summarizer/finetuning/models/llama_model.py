@@ -189,46 +189,38 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                     logger.error(f"Error in batch {batch_idx}: {e}")
                     continue
             
-            # Process all batches together for better GPU utilization
+            # Process each batch individually to avoid tensor size mismatches
             if all_inputs:
-                logger.info(f"Processing {len(all_inputs)} batches together")
+                logger.info(f"Processing {len(all_inputs)} batches individually")
                 
-                # Concatenate all inputs for efficient processing
-                combined_input_ids = torch.cat([inputs["input_ids"] for inputs in all_inputs], dim=0)
-                combined_attention_mask = torch.cat([inputs["attention_mask"] for inputs in all_inputs], dim=0)
-                
-                combined_inputs = {
-                    "input_ids": combined_input_ids,
-                    "attention_mask": combined_attention_mask
-                }
-                
-                # Generate all summaries at once
-                out = self.model.generate(
-                    **combined_inputs,
-                    max_new_tokens=max_length,
-                    do_sample=False,
-                    temperature=None,
-                    top_p=None,
-                    top_k=None,
-                    typical_p=None,
-                    eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    no_repeat_ngram_size=3,
-                    repetition_penalty=1.1,
-                )
-                
-                # Decode all results
-                start_idx = 0
-                for batch_idx, prompt_lengths in enumerate(all_prompt_lengths):
-                    batch_size = prompt_lengths.shape[0]
-                    end_idx = start_idx + batch_size
-                    
-                    for i in range(batch_size):
-                        gen_ids = out[start_idx + i][prompt_lengths[i]:]
-                        decoded = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
-                        results.append(decoded)
-                    
-                    start_idx = end_idx
+                for batch_idx, (inputs, prompt_lengths) in enumerate(zip(all_inputs, all_prompt_lengths)):
+                    try:
+                        # Generate summaries for this batch
+                        out = self.model.generate(
+                            **inputs,
+                            max_new_tokens=max_length,
+                            do_sample=False,
+                            temperature=None,
+                            top_p=None,
+                            top_k=None,
+                            typical_p=None,
+                            eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
+                            pad_token_id=self.tokenizer.pad_token_id,
+                            no_repeat_ngram_size=3,
+                            repetition_penalty=1.1,
+                        )
+                        
+                        # Decode results for this batch
+                        for i in range(out.shape[0]):
+                            gen_ids = out[i][prompt_lengths[i]:]
+                            decoded = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+                            results.append(decoded)
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing batch {batch_idx}: {e}")
+                        # Add empty results for failed batches to maintain indexing
+                        batch_size = inputs["input_ids"].shape[0]
+                        results.extend([""] * batch_size)
 
         return results
 
