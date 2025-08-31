@@ -48,7 +48,7 @@ def main():
             "InputDataFolderURI": "s3://nba-recap-summarization-model-source-data/nba-recap-dataset/",
             "PreprocessedOutputS3Uri": f"s3://nba-recap-summarization-model-{args.env}/input/preprocessed",
             "TrainingOutputS3Uri": f"s3://nba-recap-summarization-model-{args.env}/output/artifacts",
-            "PackagedModelS3Uri": f"s3://nba-recap-summarization-model-{args.env}/output/artifacts/{args.pipeline_run_id}/model.tar.gz",
+            # PackagedModelS3Uri removed - using checkpoints directly
             "PreprocessingInstanceType": args.preprocessing_instance_type,
             "PreprocessingInstanceCount": args.preprocessing_instance_count,
             "TrainingInstanceType": args.training_instance_type,

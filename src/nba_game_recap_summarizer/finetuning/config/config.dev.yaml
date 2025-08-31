@@ -18,19 +18,19 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 2  # Reduced from 4 to save memory
-  accumulate_grad_batches: 2  # Effective batch size = 2 * 2 = 4
+  batch_size: 4  # Increased for better GPU utilization
+  accumulate_grad_batches: 1  # No need for accumulation with larger batch size
   learning_rate: 1e-5
-  warmup_steps: 250
+  warmup_steps: 50  # Reduced for small dataset
   weight_decay: 0.0
   patience: 3
   precision: "16-mixed"        # if your trainer exposes this; T4 => fp16
   gradient_clip_val: 1.0
   max_epochs: 3
-  num_workers: 2  # Reduced from 4 to save memory
+  num_workers: 4  # Increased for better data loading
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
-  gradient_checkpointing: true  # Enable gradient checkpointing to save memory
+  gradient_checkpointing: false  # Disabled for small dataset (overhead > benefit)
 
 data:
   train_samples: 20  # Use -1 for all training data
@@ -49,7 +49,7 @@ data:
 
 evaluation:
   model_artifact_dir: "/opt/ml/processing/input/model-artifacts"
-  test_samples_lexical_metrics: 16
-  test_samples_semantic_metrics: 16
-  test_samples_ai_as_judge_metrics: 8
+  test_samples_lexical_metrics: 5
+  test_samples_semantic_metrics: 5
+  test_samples_ai_as_judge_metrics: 2
   

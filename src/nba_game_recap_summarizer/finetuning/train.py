@@ -82,12 +82,12 @@ def train(cfg: DictConfig):
         gradient_clip_val=cfg.training.gradient_clip_val,
         precision=cfg.training.precision,   # e.g. "bf16-mixed" or "16-mixed"
         accumulate_grad_batches=cfg.training.accumulate_grad_batches,
-        val_check_interval=0.5,  # Force validation every 50% of training steps
-        check_val_every_n_epoch=1,  # Also validate every epoch
+        val_check_interval=1.0,  # Validate every epoch (more efficient for small datasets)
+        check_val_every_n_epoch=1,  # Validate every epoch
         # Memory optimization settings
         enable_progress_bar=True,
         enable_model_summary=False,  # Disable to save memory
-        log_every_n_steps=10,  # Reduce logging frequency
+        log_every_n_steps=1,  # Log every step for small datasets
     )
     if getattr(cfg.training, "gradient_checkpointing", False):
         try:
