@@ -35,8 +35,8 @@ jobs:
 
       - name: Pre-destroy scale-down (ECS + ASG)
         env:
-          CLUSTER: nba_game_recap_summarizer-${{ github.event.inputs.env }}-cluster
-          SERVICE: nba_game_recap_summarizer-${{ github.event.inputs.env }}-v1-service
+          CLUSTER: nba-recap-summarizer-${{ github.event.inputs.env }}-cluster
+          SERVICE: nba-recap-summarizer-${{ github.event.inputs.env }}-v1-service
         run: |
           set -euxo pipefail
 
@@ -49,7 +49,7 @@ jobs:
 
           # 2) Find GPU ASGs for this env (handles multiple, if any)
           ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `nba_game_recap_summarizer-''${{ github.event.inputs.env }}''-cluster`) && contains(AutoScalingGroupName, `gpu-asg`)].AutoScalingGroupName' \
+            --query 'AutoScalingGroups[?contains(AutoScalingGroupName, `nba-recap-summarizer-''${{ github.event.inputs.env }}''-cluster`) && contains(AutoScalingGroupName, `gpu-asg`)].AutoScalingGroupName' \
             --output text)
 
           for ASG in $ASGS; do
