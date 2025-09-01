@@ -138,12 +138,24 @@ jobs:
         with:
           terraform_version: 1.6.6
 
+      - name: Check if stable image exists
+        id: check_stable
+        run: |
+          if aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY_URI }} --image-ids imageTag=${{ env.INFERENCE_IMAGE_STABLE_TAG }} 2>/dev/null; then
+            echo "stable_exists=true" >> $GITHUB_OUTPUT
+            echo "Stable image exists, using canary deployment"
+          else
+            echo "stable_exists=false" >> $GITHUB_OUTPUT
+            echo "Stable image doesn't exist, using candidate for both target groups (first deployment)"
+          fi
+
       - name: Terraform Apply
         env:
-          TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ env.INFERENCE_IMAGE_STABLE_TAG }}
-          TF_VAR_inference_image_v2_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ env.INFERENCE_IMAGE_CANDIDATE_TAG }}
+          TF_VAR_inference_image_uri: ${{ steps.check_stable.outputs.stable_exists == 'true' && env.ECR_REPOSITORY_URI + ':' + env.INFERENCE_IMAGE_STABLE_TAG || env.ECR_REPOSITORY_URI + ':' + github.sha }}
+          TF_VAR_inference_image_v2_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
           TF_VAR_model_path:          ${{ needs.trigger-sagemaker.outputs.model_path }}
-          TF_VAR_aws_region:          ${{ env.AWS_REGION }} 
+          TF_VAR_aws_region:          ${{ env.AWS_REGION }}
+          TF_VAR_enable_canary:       ${{ steps.check_stable.outputs.stable_exists == 'true' }}
         run: |
           terraform init -reconfigure
           terraform apply -auto-approve

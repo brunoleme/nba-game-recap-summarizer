@@ -140,7 +140,7 @@ jobs:
 
       - name: Terraform Apply
         env:
-          TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ env.INFERENCE_IMAGE_CANDIDATE_TAG }}
+          TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
           TF_VAR_model_path:          ${{ needs.trigger-sagemaker.outputs.model_path }}
           TF_VAR_aws_region:          ${{ env.AWS_REGION }} 
         run: |
