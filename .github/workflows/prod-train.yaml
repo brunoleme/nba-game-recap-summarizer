@@ -157,5 +157,12 @@ jobs:
           TF_VAR_aws_region:          ${{ env.AWS_REGION }}
           TF_VAR_enable_canary:       ${{ steps.check_stable.outputs.stable_exists == 'true' }}
         run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [ "${{ steps.check_stable.outputs.stable_exists }}" == "true" ]; then
+            export TF_VAR_inference_image_uri="$ECR_REPOSITORY_URI:$INFERENCE_IMAGE_STABLE_TAG"
+          else
+            export TF_VAR_inference_image_uri="$ECR_REPOSITORY_URI:$SHORT_SHA"
+          fi
+          export TF_VAR_inference_image_v2_uri="$ECR_REPOSITORY_URI:$SHORT_SHA"
           terraform init -reconfigure
           terraform apply -auto-approve

@@ -63,4 +63,5 @@ module "ecs" {
 module "iam" {
   source      = "../../iam"
   name_prefix = var.app_name
+  model_bucket_prefix = "nba-recap-summarization-model-"
 }

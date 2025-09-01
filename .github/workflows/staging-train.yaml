@@ -144,5 +144,7 @@ jobs:
           TF_VAR_model_path:          ${{ needs.trigger-sagemaker.outputs.model_path }}
           TF_VAR_aws_region:          ${{ env.AWS_REGION }} 
         run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          export TF_VAR_inference_image_uri="$ECR_REPOSITORY_URI:$SHORT_SHA"
           terraform init -reconfigure
           terraform apply -auto-approve
