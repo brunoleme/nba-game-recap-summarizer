@@ -154,16 +154,21 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         all_inputs = []
         all_prompt_lengths = []
         
+        logger.info(f"Processing dataloader with batch_size={dataloader.batch_size}")
+        
         with torch.no_grad():
             for batch_idx, batch in enumerate(dataloader):
+                logger.info(f"Processing batch {batch_idx}, batch keys: {list(batch.keys())}")
                 try:
                     # Support two styles:
                     #  A) pre-tokenized batches (input_ids/attention_mask)
                     #  B) raw text batches with "game_recap" field
                     if "input_ids" in batch:
+                        logger.info(f"Batch {batch_idx}: Using pre-tokenized input, shape: {batch['input_ids'].shape}")
                         inputs = {k: v.to(self.device) for k, v in batch.items() if k in {"input_ids", "attention_mask"}}
                         prompt_lengths = inputs["input_ids"].shape[1] * torch.ones(inputs["input_ids"].shape[0], dtype=torch.long, device=self.device)
                     else:
+                        logger.info(f"Batch {batch_idx}: Using raw text input, game_recap count: {len(batch['game_recap'])}")
                         convs: List[str] = batch["game_recap"]
                         prompts = [
                             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
@@ -184,9 +189,11 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                     
                     all_inputs.append(inputs)
                     all_prompt_lengths.append(prompt_lengths)
+                    logger.info(f"Batch {batch_idx}: Successfully processed, inputs shape: {inputs['input_ids'].shape}")
                     
                 except Exception as e:
                     logger.error(f"Error in batch {batch_idx}: {e}")
+                    logger.error(f"Batch {batch_idx} content: {batch}")
                     continue
             
             # Process each batch individually to avoid tensor size mismatches
@@ -195,6 +202,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 
                 for batch_idx, (inputs, prompt_lengths) in enumerate(zip(all_inputs, all_prompt_lengths)):
                     try:
+                        logger.info(f"Generating for batch {batch_idx}, input shape: {inputs['input_ids'].shape}")
                         # Generate summaries for this batch
                         out = self.model.generate(
                             **inputs,
@@ -210,17 +218,24 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                             repetition_penalty=1.1,
                         )
                         
+                        logger.info(f"Generated output for batch {batch_idx}, shape: {out.shape}")
+                        
                         # Decode results for this batch
                         for i in range(out.shape[0]):
                             gen_ids = out[i][prompt_lengths[i]:]
                             decoded = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
                             results.append(decoded)
+                            logger.info(f"Batch {batch_idx}, sample {i}: Generated summary of length {len(decoded)}")
                             
                     except Exception as e:
                         logger.error(f"Error processing batch {batch_idx}: {e}")
+                        logger.error(f"Batch {batch_idx} inputs: {inputs}")
+                        logger.error(f"Batch {batch_idx} prompt_lengths: {prompt_lengths}")
                         # Add empty results for failed batches to maintain indexing
                         batch_size = inputs["input_ids"].shape[0]
                         results.extend([""] * batch_size)
+            else:
+                logger.warning("No inputs collected from dataloader")
 
         return results
 

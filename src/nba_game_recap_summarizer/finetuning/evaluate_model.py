@@ -1,6 +1,7 @@
 import os
 import gc
 import json
+import time
 import pandas as pd
 import torch
 from omegaconf import DictConfig
@@ -47,7 +48,6 @@ def run_metric_evaluation(title, cfg, dataloader_samples, metrics_dict, model, d
 
 def run_batch_metric_evaluation(cfg, model, device, env_folder):
     """Run all metrics on the same dataloader to avoid reloading data and model"""
-    import time
     start_time = time.time()
     
     logger.info("Starting batch metric evaluation")
@@ -71,7 +71,10 @@ def run_batch_metric_evaluation(cfg, model, device, env_folder):
     predictions = model.summarize_recaps(dataloader, max_length=cfg.model.max_length)
     prediction_time = time.time() - prediction_start
     logger.info(f"Text generation completed in {prediction_time:.2f}s for {len(predictions)} samples")
-    logger.info(f"Average time per sample: {prediction_time/len(predictions):.2f}s")
+    if len(predictions) > 0:
+        logger.info(f"Average time per sample: {prediction_time/len(predictions):.2f}s")
+    else:
+        logger.warning("No predictions generated, cannot calculate average time per sample")
     
     # Extract references and instructions
     all_references = []
