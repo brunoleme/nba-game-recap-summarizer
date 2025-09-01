@@ -286,25 +286,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             # Load checkpoint directly - PyTorch Lightning supports S3 URLs
             checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
 
-            # Fallback to checkpoint hyperparams if not provided
-            model_name = model_name or checkpoint.hparams.model_name
-            model_type = model_type or checkpoint.hparams.model_type
-            peft_method = peft_method or checkpoint.hparams.peft_method
-
-            # Create new model instance
-            model = LlamaRecapSummarizationModel(
-                model_name=model_name,
-                model_type=model_type or "llama",
-                peft_method=peft_method,
-                use_quantization=False,
-            )
-
-            # Use the already loaded checkpoint state
-            checkpoint_state = checkpoint.state_dict()
-            model.load_state_dict(checkpoint_state, strict=False)  # allow for PEFT heads etc.
-            
-            logger.success("Model restored successfully")
-            return model
+            # The checkpoint is already fully loaded with model, tokenizer, and state
+            # Just return it directly instead of creating a new instance
+            logger.success("Model restored successfully from checkpoint")
+            return checkpoint
 
         except Exception as e:
             logger.error(f"Failed to restore model: {str(e)}")
