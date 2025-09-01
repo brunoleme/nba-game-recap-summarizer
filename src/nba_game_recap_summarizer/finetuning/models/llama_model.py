@@ -282,11 +282,8 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
     ) -> "LlamaRecapSummarizationModel":
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
-        if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
         try:
-            # Load checkpoint only once
+            # Load checkpoint directly - PyTorch Lightning supports S3 URLs
             checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
 
             # Fallback to checkpoint hyperparams if not provided
