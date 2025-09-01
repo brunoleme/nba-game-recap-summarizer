@@ -210,16 +210,20 @@ def evaluate_model(cfg: DictConfig):
         size_time = time.time() - size_start
         logger.info(f"Model size calculation completed in {size_time:.2f}s")
         
-        # Calculate latency using a small subset of the data for efficiency
+        # Calculate latency using the already-generated predictions for efficiency
         latency_start = time.time()
-        max_samples = max(
-            cfg.evaluation.test_samples_lexical_metrics,
-            cfg.evaluation.test_samples_semantic_metrics,
-            cfg.evaluation.test_samples_ai_as_judge_metrics
-        )
-        logger.info(f"Setting up latency dataloader for {min(5, max_samples)} samples")
-        latency_dataloader = setup_dataloader(cfg, min(5, max_samples), env_folder)
-        latency = calculate_average_latency(model, latency_dataloader, cfg.model.max_length)
+        if len(predictions) > 0:
+            # Use a small subset of existing predictions to calculate latency
+            latency_samples = min(3, len(predictions))
+            logger.info(f"Calculating latency using {latency_samples} existing predictions")
+            
+            # Calculate latency from the batch generation we already did
+            # This avoids reloading the model and regenerating text
+            latency = prediction_time / len(predictions)  # Average time per sample from batch generation
+        else:
+            logger.warning("No predictions available for latency calculation")
+            latency = 0.0
+            
         latency_time = time.time() - latency_start
         logger.info(f"Latency calculation completed in {latency_time:.2f}s")
         

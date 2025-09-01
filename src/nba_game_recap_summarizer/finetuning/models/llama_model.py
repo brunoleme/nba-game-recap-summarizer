@@ -204,9 +204,13 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                     try:
                         logger.info(f"Generating for batch {batch_idx}, input shape: {inputs['input_ids'].shape}")
                         # Generate summaries for this batch
+                        # Limit output length to reasonable summary length based on target distribution
+                        max_new_tokens = min(max_length, 300)  # Cap at 300 tokens (covers P95 and max)
+                        logger.info(f"Generating with max_new_tokens={max_new_tokens}")
+                        
                         out = self.model.generate(
                             **inputs,
-                            max_new_tokens=max_length,
+                            max_new_tokens=max_new_tokens,
                             do_sample=False,
                             temperature=None,
                             top_p=None,
