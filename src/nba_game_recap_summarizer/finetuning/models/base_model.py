@@ -216,9 +216,22 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         pass
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        # Log GPU memory before forward pass
+        if torch.cuda.is_available():
+            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
+                logger.debug(f"Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
+        
         outputs = self(**batch)
         loss = outputs.loss
 
+        # Log GPU memory after forward pass
+        if torch.cuda.is_available():
+            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
+                logger.debug(f"Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
+                logger.debug(f"Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
+        
         self.log("train_loss", loss, prog_bar=True)
         self.training_step_outputs.append(loss.detach().cpu())
 
@@ -233,8 +246,22 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
     #     self.validation_step_outputs.append(loss.detach().cpu())
 
     def validation_step(self, batch, batch_idx):
+        # Log GPU memory before forward pass
+        if torch.cuda.is_available():
+            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
+                logger.debug(f"Val Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
+        
         outputs = self(**batch)
         loss = outputs.loss
+        
+        # Log GPU memory after forward pass
+        if torch.cuda.is_available():
+            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
+                logger.debug(f"Val Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
+                logger.debug(f"Val Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
+        
         # keep per-step if you want, but make sure on_epoch=True is set:
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
         self.validation_step_outputs.append(loss.detach().cpu())

@@ -155,7 +155,7 @@ def run_batch_metric_evaluation(cfg, model, device, env_folder):
     total_time = time.time() - start_time
     logger.info(f"Batch metric evaluation completed in {total_time:.2f}s")
     
-    return pd.DataFrame(results, index=[0])
+    return pd.DataFrame(results, index=[0]), predictions, prediction_time
 
 def evaluate_model(cfg: DictConfig):
     env_folder = os.getenv("ENV", "no-env")
@@ -165,6 +165,15 @@ def evaluate_model(cfg: DictConfig):
         logger.info("Starting computing evaluation metrics")
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {device}")
+        
+        # Log GPU information if available
+        if torch.cuda.is_available():
+            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+            logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            logger.info(f"CUDA Version: {torch.version.cuda}")
+        else:
+            logger.warning("CUDA not available, using CPU")
 
         logger.info("Defining evaluation metrics to be computed")
         lexical_metrics_dict = {
@@ -191,6 +200,15 @@ def evaluate_model(cfg: DictConfig):
         peft_method = cfg.model.peft_method
 
         model = load_model(model_ckpt, model_name, model_type, device, peft_method)
+        
+        # Verify model device placement
+        model_device = next(model.parameters()).device
+        logger.info(f"Model device: {model_device}")
+        if torch.cuda.is_available() and model_device.type == 'cuda':
+            logger.info(f"✅ Model successfully loaded on GPU: {torch.cuda.get_device_name(model_device.index)}")
+            logger.info(f"GPU Memory after model load: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+        else:
+            logger.warning(f"⚠️ Model is on {model_device}, not on GPU as expected")
 
         results = []
 
@@ -199,7 +217,7 @@ def evaluate_model(cfg: DictConfig):
 
         # Run all metrics in batch to avoid reloading model and data
         logger.info("Computing all metrics in batch")
-        batch_metrics_results_df = run_batch_metric_evaluation(cfg, model, device, env_folder)
+        batch_metrics_results_df, predictions, prediction_time = run_batch_metric_evaluation(cfg, model, device, env_folder)
         results.append(batch_metrics_results_df)
 
         logger.info("Computing system metrics")
@@ -235,8 +253,6 @@ def evaluate_model(cfg: DictConfig):
             "avg_latency_sec": [latency],
         })
         results.append(system_metrics_df)
-        
-        del latency_dataloader
 
         del model
         gc.collect()

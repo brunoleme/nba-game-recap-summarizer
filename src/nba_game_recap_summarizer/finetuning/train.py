@@ -1,11 +1,12 @@
 import os
 
 import hydra
+import torch
 from loguru import logger
 from omegaconf import DictConfig
 
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, Callback
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 
@@ -15,6 +16,35 @@ from nba_game_recap_summarizer.finetuning.utils.logger import setup_logger
 MODEL_CLASSES = {
     "llama": "nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel",
 }
+
+class GPUMonitoringCallback(Callback):
+    """Callback to monitor GPU usage during training"""
+    
+    def on_train_start(self, trainer, pl_module):
+        if torch.cuda.is_available():
+            logger.info(f"🚀 Training started on GPU: {torch.cuda.get_device_name(0)}")
+            logger.info(f"GPU Memory at training start: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+    
+    def on_train_epoch_start(self, trainer, pl_module):
+        if torch.cuda.is_available():
+            logger.info(f"📊 Epoch {trainer.current_epoch} - GPU Memory: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+    
+    def on_train_epoch_end(self, trainer, pl_module):
+        if torch.cuda.is_available():
+            logger.info(f"✅ Epoch {trainer.current_epoch} completed - GPU Memory: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+    
+    def on_validation_start(self, trainer, pl_module):
+        if torch.cuda.is_available():
+            logger.info(f"🔍 Validation started - GPU Memory: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+    
+    def on_validation_end(self, trainer, pl_module):
+        if torch.cuda.is_available():
+            logger.info(f"🔍 Validation completed - GPU Memory: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+    
+    def on_train_end(self, trainer, pl_module):
+        if torch.cuda.is_available():
+            logger.info(f"🏁 Training completed - Final GPU Memory: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+            logger.info(f"Peak GPU Memory used: {torch.cuda.max_memory_allocated(0) / 1024**3:.2f} GB")
 
 def train(cfg: DictConfig):
     setup_logger(cfg.logging.log_path)
@@ -50,6 +80,26 @@ def train(cfg: DictConfig):
 
     total_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Total model parameters: {total_params:,}")
+    
+    # Log GPU information and verify model placement
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Training device: {device}")
+    
+    if torch.cuda.is_available():
+        logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+        logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        logger.info(f"CUDA Version: {torch.version.cuda}")
+        
+        # Check if model is on GPU
+        model_device = next(model.parameters()).device
+        logger.info(f"Model device: {model_device}")
+        if model_device.type == 'cuda':
+            logger.info(f"✅ Model successfully loaded on GPU: {torch.cuda.get_device_name(model_device.index)}")
+            logger.info(f"GPU Memory after model load: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+        else:
+            logger.warning(f"⚠️ Model is on {model_device}, not on GPU as expected")
+    else:
+        logger.warning("CUDA not available, training will use CPU")
 
 
     checkpoint_callback = ModelCheckpoint(
@@ -67,6 +117,7 @@ def train(cfg: DictConfig):
     callbacks = [
         checkpoint_callback,
         EarlyStopping(monitor="val_loss", patience=cfg.training.patience, mode="min"),
+        GPUMonitoringCallback(),
     ]
 
     wandb.init(project=f"{cfg.project_name}-training-{env_folder}", name=f"{cfg.model.name}-{cfg.model.peft_method}", tags=[f"pipeline:{pipeline_run_id}"])

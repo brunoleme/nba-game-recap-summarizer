@@ -203,6 +203,12 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 for batch_idx, (inputs, prompt_lengths) in enumerate(zip(all_inputs, all_prompt_lengths)):
                     try:
                         logger.info(f"Generating for batch {batch_idx}, input shape: {inputs['input_ids'].shape}")
+                        
+                        # Log GPU memory before generation
+                        if torch.cuda.is_available():
+                            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
+                            logger.info(f"GPU Memory before generation: {gpu_memory_before:.2f} GB")
+                        
                         # Generate summaries for this batch
                         # Limit output length to reasonable summary length based on target distribution
                         max_new_tokens = min(max_length, 300)  # Cap at 300 tokens (covers P95 and max)
@@ -223,6 +229,12 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         )
                         
                         logger.info(f"Generated output for batch {batch_idx}, shape: {out.shape}")
+                        
+                        # Log GPU memory after generation
+                        if torch.cuda.is_available():
+                            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
+                            logger.info(f"GPU Memory after generation: {gpu_memory_after:.2f} GB")
+                            logger.info(f"GPU Memory used for generation: {gpu_memory_after - gpu_memory_before:.2f} GB")
                         
                         # Decode results for this batch
                         for i in range(out.shape[0]):
