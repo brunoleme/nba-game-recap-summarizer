@@ -52,7 +52,7 @@ async def root():
 
 class GameRecapRequest(BaseModel):
     game_recap: str = Field(..., min_length=1, description="The NBA game recap")
-    max_length: int = Field(default=2048, ge=1, le=4096, description="Maximum length of generated recap summary")
+    max_length: int = Field(default=2048, ge=1, le=2048, description="Maximum length of generated recap summary")
 
     @validator('game_recap')
     def clean_game_recap_input(cls, v):

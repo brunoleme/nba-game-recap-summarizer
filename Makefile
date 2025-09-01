@@ -33,6 +33,7 @@ install:
 	pip install -e .[dev]
 
 test:
+	rm -f .coverage .coverage.* || true
 	PYTHONPATH=. ENV=$(ENV) pytest tests/ --cov=src --cov-report=term-missing -s
 
 lint:
@@ -63,7 +64,7 @@ clean-venv:
 	rm -rf .venv
 
 create-venv:
-	python3.9 -m venv .venv
+	python3.10 -m venv .venv
 	. .venv/bin/activate && pip install --upgrade pip setuptools
 
 clean-all: clean clean-venv
@@ -113,10 +114,13 @@ sagemaker-pipeline-trigger:
 		--env $(ENV) \
 		--wandb-api-key $(WANDB_API_KEY) \
 		--openai-api-key $(OPENAI_API_KEY) \
+		--hf-token $(HF_TOKEN) \
+		--huggingfacehub-api-token $(HUGGINGFACEHUB_API_TOKEN) \
 		--preprocessing-instance-type $(PREPROCESSING_INSTANCE_TYPE) \
 		--preprocessing-instance-count 1 \
 		--training-instance-type $(TRAINING_INSTANCE_TYPE) \
 		--training-instance-count 1 \
 		--evaluation-instance-type $(EVALUATION_INSTANCE_TYPE) \
 		--evaluation-instance-count 1 \
-		--deployment-instance-type $(DEPLOYMENT_INSTANCE_TYPE)
+		--deployment-instance-type $(DEPLOYMENT_INSTANCE_TYPE) \
+		--project-config $(PROJECT_CONFIG)
