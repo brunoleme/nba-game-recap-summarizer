@@ -20,6 +20,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
     env_param = ParameterString(name="Environment", default_value="dev")
     wandb_api_key = ParameterString(name="WandbApiKey", default_value="")
     open_ai_key = ParameterString(name="OpenAIApiKey", default_value="")
+    hf_token = ParameterString(name="HFToken", default_value="")
+    huggingfacehub_api_token = ParameterString(name="HuggingFaceHubApiToken", default_value="")
     image_uri = ParameterString(name="ImageURI", default_value="")
     inference_image_uri = ParameterString(name="InferenceImageURI", default_value="")
     preprocessing_instance_type = ParameterString(name="PreprocessingInstanceType", default_value="ml.m5.large")
@@ -33,7 +35,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
 
     preprocessed_data_output_uri = ParameterString("PreprocessedOutputS3Uri", default_value="s3://nba-recap-summarization-model-dev/input/preprocessed")
     training_artifacts_output_uri = ParameterString("TrainingOutputS3Uri", default_value="s3://nba-recap-summarization-model-dev/output/artifacts")
-    package_model_uri = ParameterString("PackagedModelS3Uri", default_value="s3://nba-recap-summarization-model-dev/output/artifacts/no_pipeline_id/model.tar.gz")
+    # Package model URI removed - using checkpoints directly
 
     # Preprocessing
     preprocessing_processor = ScriptProcessor(
@@ -46,6 +48,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         env={
             "ENV": env_param,
             "WANDB_API_KEY": wandb_api_key,
+            "HF_TOKEN": hf_token,
+            "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
         },
     )
@@ -73,6 +77,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         env={
             "ENV": env_param,
             "WANDB_API_KEY": wandb_api_key,
+            "HF_TOKEN": hf_token,
+            "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
         },
     )
@@ -105,6 +111,8 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             "ENV": env_param,
             "WANDB_API_KEY": wandb_api_key,
             "OPENAI_API_KEY": open_ai_key,
+            "HF_TOKEN": hf_token,
+            "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
         },
     )
@@ -143,43 +151,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         property_files=[evaluation_report],
     )
 
-    model = Model(
-        image_uri=inference_image_uri,
-        model_data=package_model_uri,
-        role=role_arn,
-        sagemaker_session=session,
-    )
-
-    register_model_step = ModelStep(
-        name="RegisterNBAGameRecapModel",
-        step_args=model.register(
-            content_types=["application/json"],
-            response_types=["application/json"],
-            inference_instances=[deployment_instance_type],
-            transform_instances=[deployment_instance_type],
-            model_package_group_name="NBAGameRecapModel",
-            approval_status="Approved",
-            description="Registered model for NBA recap summarizer model",
-            customer_metadata_properties={
-                "pipeline_run_id": pipeline_run_id_param,
-                "env": env_param,
-            },
-        ),
-    )
-
-    registered_model_package = register_model_step.properties.ModelPackageArn
-
-
-
-    condition_step = ConditionStep(
-        name="CheckBertScoreCondition",
-        conditions=[ConditionGreaterThanOrEqualTo(
-            left=JsonGet(step_name=evaluation_step.name, property_file=evaluation_report, json_path="bert_score"),
-            right=0.8,
-        )],
-        if_steps=[register_model_step],
-        else_steps=[],
-    )
+    # Condition step removed - no model registration needed
 
     return Pipeline(
         name="NBARecapModelPipeline",
@@ -187,12 +159,13 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             source_data_folder_uri,
             preprocessed_data_output_uri,
             training_artifacts_output_uri,
-            package_model_uri,
             pipeline_run_id_param,
             # job_prefix_name,
             env_param,
             wandb_api_key,
             open_ai_key,
+            hf_token,
+            huggingfacehub_api_token,
             image_uri,
             inference_image_uri,
             preprocessing_instance_type,
@@ -204,5 +177,5 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             deployment_instance_type,
             project_config,
         ],
-        steps=[preprocessing_step, training_step, evaluation_step, condition_step],
+        steps=[preprocessing_step, training_step, evaluation_step],
     )

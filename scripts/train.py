@@ -4,7 +4,6 @@ from omegaconf import OmegaConf
 
 from nba_game_recap_summarizer.finetuning.train import train
 from nba_game_recap_summarizer.finetuning.pre_training import pre_train
-from nba_game_recap_summarizer.finetuning.post_training import package_model
 
 
 def main():
@@ -18,7 +17,6 @@ def main():
     print(OmegaConf.to_yaml(cfg))
     pre_train(cfg)
     train(cfg)
-    package_model(cfg)
 
 
 if __name__ == "__main__":

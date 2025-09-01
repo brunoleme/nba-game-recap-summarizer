@@ -7,7 +7,6 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from nba_game_recap_summarizer.finetuning.utils.text_utils import replace_first_dash
 from .base_model import BaseRecapSummarizationModel
 
 
@@ -41,7 +40,9 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         peft_method: Optional[str] = None,
         **kwargs,
     ):
-        name = replace_first_dash(model_name)
+        logger.info(f"Initializing tokenizer with model: {model_name}")
+
+        name = model_name
 
         # Tokenizer first (so we can pass ids to model if needed)
         tokenizer = AutoTokenizer.from_pretrained(name, use_fast=False)
@@ -104,7 +105,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         Builds a prompt, generates continuation, then strips the prompt.
         """
         if max_length is None:
-            max_length = 3072
+            max_length = 2048
 
         logger.info("Generating game recap summary(LLaMA)")
         logger.debug(f"Input game_recap length: {len(game_recap)}")
@@ -126,6 +127,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 **enc,
                 max_new_tokens=max_length,
                 do_sample=False,
+                temperature=None,
+                top_p=None,
+                top_k=None,
+                typical_p=None,
                 eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                 pad_token_id=self.tokenizer.pad_token_id,
                 no_repeat_ngram_size=3,
@@ -139,21 +144,31 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
     # ---------- batch generation ----------
     def summarize_recaps(self, dataloader: DataLoader, max_length: Optional[int] = None) -> List[str]:
         if max_length is None:
-            max_length = 3076
+            max_length = 2048
 
         logger.info("Generating recap summaries for batch (LLaMA)")
         results: List[str] = []
         self.model.eval()
+        
+        # Collect all inputs first for better batching
+        all_inputs = []
+        all_prompt_lengths = []
+        
+        logger.info(f"Processing dataloader with batch_size={dataloader.batch_size}")
+        
         with torch.no_grad():
             for batch_idx, batch in enumerate(dataloader):
+                logger.info(f"Processing batch {batch_idx}, batch keys: {list(batch.keys())}")
                 try:
                     # Support two styles:
                     #  A) pre-tokenized batches (input_ids/attention_mask)
                     #  B) raw text batches with "game_recap" field
                     if "input_ids" in batch:
+                        logger.info(f"Batch {batch_idx}: Using pre-tokenized input, shape: {batch['input_ids'].shape}")
                         inputs = {k: v.to(self.device) for k, v in batch.items() if k in {"input_ids", "attention_mask"}}
                         prompt_lengths = inputs["input_ids"].shape[1] * torch.ones(inputs["input_ids"].shape[0], dtype=torch.long, device=self.device)
                     else:
+                        logger.info(f"Batch {batch_idx}: Using raw text input, game_recap count: {len(batch['game_recap'])}")
                         convs: List[str] = batch["game_recap"]
                         prompts = [
                             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
@@ -171,28 +186,72 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         )
                         inputs = {k: v.to(self.device) for k, v in enc.items()}
                         prompt_lengths = inputs["input_ids"].ne(self.tokenizer.pad_token_id).sum(dim=1)
-
-                    out = self.model.generate(
-                        **inputs,
-                        max_new_tokens=max_length,
-                        do_sample=False,
-                        eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        no_repeat_ngram_size=3,
-                        repetition_penalty=1.1,
-                    )
-
-                    # Slice off prompts for each sequence
-                    decoded = []
-                    for i in range(out.size(0)):
-                        gen_ids = out[i][prompt_lengths[i]:]
-                        decoded.append(self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip())
-
-                    results.extend(decoded)
-
+                    
+                    all_inputs.append(inputs)
+                    all_prompt_lengths.append(prompt_lengths)
+                    logger.info(f"Batch {batch_idx}: Successfully processed, inputs shape: {inputs['input_ids'].shape}")
+                    
                 except Exception as e:
                     logger.error(f"Error in batch {batch_idx}: {e}")
+                    logger.error(f"Batch {batch_idx} content: {batch}")
                     continue
+            
+            # Process each batch individually to avoid tensor size mismatches
+            if all_inputs:
+                logger.info(f"Processing {len(all_inputs)} batches individually")
+                
+                for batch_idx, (inputs, prompt_lengths) in enumerate(zip(all_inputs, all_prompt_lengths)):
+                    try:
+                        logger.info(f"Generating for batch {batch_idx}, input shape: {inputs['input_ids'].shape}")
+                        
+                        # Log GPU memory before generation
+                        if torch.cuda.is_available():
+                            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
+                            logger.info(f"GPU Memory before generation: {gpu_memory_before:.2f} GB")
+                        
+                        # Generate summaries for this batch
+                        # Limit output length to reasonable summary length based on target distribution
+                        max_new_tokens = min(max_length, 300)  # Cap at 300 tokens (covers P95 and max)
+                        logger.info(f"Generating with max_new_tokens={max_new_tokens}")
+                        
+                        out = self.model.generate(
+                            **inputs,
+                            max_new_tokens=max_new_tokens,
+                            do_sample=False,
+                            temperature=None,
+                            top_p=None,
+                            top_k=None,
+                            typical_p=None,
+                            eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
+                            pad_token_id=self.tokenizer.pad_token_id,
+                            no_repeat_ngram_size=3,
+                            repetition_penalty=1.1,
+                        )
+                        
+                        logger.info(f"Generated output for batch {batch_idx}, shape: {out.shape}")
+                        
+                        # Log GPU memory after generation
+                        if torch.cuda.is_available():
+                            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
+                            logger.info(f"GPU Memory after generation: {gpu_memory_after:.2f} GB")
+                            logger.info(f"GPU Memory used for generation: {gpu_memory_after - gpu_memory_before:.2f} GB")
+                        
+                        # Decode results for this batch
+                        for i in range(out.shape[0]):
+                            gen_ids = out[i][prompt_lengths[i]:]
+                            decoded = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+                            results.append(decoded)
+                            logger.info(f"Batch {batch_idx}, sample {i}: Generated summary of length {len(decoded)}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing batch {batch_idx}: {e}")
+                        logger.error(f"Batch {batch_idx} inputs: {inputs}")
+                        logger.error(f"Batch {batch_idx} prompt_lengths: {prompt_lengths}")
+                        # Add empty results for failed batches to maintain indexing
+                        batch_size = inputs["input_ids"].shape[0]
+                        results.extend([""] * batch_size)
+            else:
+                logger.warning("No inputs collected from dataloader")
 
         return results
 
@@ -223,34 +282,14 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
     ) -> "LlamaRecapSummarizationModel":
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
-        if not os.path.exists(checkpoint_path):
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
         try:
+            # Load checkpoint directly - PyTorch Lightning supports S3 URLs
             checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
 
-            # Fallback to checkpoint hyperparams if not provided
-            model_name = model_name or checkpoint.hparams.model_name
-            model_type = model_type or checkpoint.hparams.model_type
-            peft_method = peft_method or checkpoint.hparams.peft_method
-
-            model = LlamaRecapSummarizationModel(
-                model_name=model_name,
-                model_type=model_type or "llama",
-                peft_method=peft_method,
-                use_quantization=False,
-            )
-
-            checkpoint_state = LlamaRecapSummarizationModel.load_from_checkpoint(
-                checkpoint_path,
-                model_name=model_name,
-                model_type=model_type or "llama",
-                peft_method=peft_method,
-            ).state_dict()
-
-            model.load_state_dict(checkpoint_state, strict=False)  # allow for PEFT heads etc.
-            logger.success("Model restored successfully")
-            return model
+            # The checkpoint is already fully loaded with model, tokenizer, and state
+            # Just return it directly instead of creating a new instance
+            logger.success("Model restored successfully from checkpoint")
+            return checkpoint
 
         except Exception as e:
             logger.error(f"Failed to restore model: {str(e)}")

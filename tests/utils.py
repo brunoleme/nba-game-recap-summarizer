@@ -15,7 +15,10 @@ def run_preprocessing_for_tests():
         source_data_path=source_data_path,
         preprocessed_output_data_folder=preprocessed_input_data_folder,
         env_folder=env_folder,
-        max_length=128,
+        max_length=128,  # Keep test values small
+        train_split=0.5,  # 50% = 10 samples (out of 20 total)
+        val_split=0.25,   # 25% = 5 samples
+        test_split=0.25,  # 25% = 5 samples
     )
 
     preprocessingmodule.run()

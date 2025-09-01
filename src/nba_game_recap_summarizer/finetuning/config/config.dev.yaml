@@ -5,11 +5,11 @@ logging:
 
 model:
   type: "llama"
-  name: "meta-llama/Llama-3.2-3B-Instruct"
+  name: "meta-llama/Llama-3.2-1B-Instruct"
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 4096
+  max_length: 2048  # Reduced from 4096 to save memory
 
 lora:
   r: 8
@@ -18,18 +18,19 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 4
-  accumulate_grad_batches: 4
+  batch_size: 1  # Reduced to 1 to fit in GPU memory
+  accumulate_grad_batches: 4  # Effective batch size = 1 * 4 = 4
   learning_rate: 1e-5
-  warmup_steps: 250
+  warmup_steps: 50  # Reduced for small dataset
   weight_decay: 0.0
   patience: 3
   precision: "16-mixed"        # if your trainer exposes this; T4 => fp16
   gradient_clip_val: 1.0
   max_epochs: 3
-  num_workers: 4
+  num_workers: 2  # Reduced to save memory
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
+  gradient_checkpointing: true  # Enabled to save memory
 
 data:
   train_samples: 20  # Use -1 for all training data
@@ -48,7 +49,7 @@ data:
 
 evaluation:
   model_artifact_dir: "/opt/ml/processing/input/model-artifacts"
-  test_samples_lexical_metrics: 16
-  test_samples_semantic_metrics: 16
-  test_samples_ai_as_judge_metrics: 8
+  test_samples_lexical_metrics: 5
+  test_samples_semantic_metrics: 5
+  test_samples_ai_as_judge_metrics: 2
   

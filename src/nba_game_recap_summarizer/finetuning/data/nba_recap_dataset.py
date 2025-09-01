@@ -1,14 +1,12 @@
 import os
 from functools import partial
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 import pytorch_lightning as pl
 from datasets import load_dataset
 from loguru import logger
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
-
-from nba_game_recap_summarizer.finetuning.utils.text_utils import replace_first_dash
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from dataclasses import dataclass
 from typing import List, Dict
@@ -16,13 +14,19 @@ import torch
 
 @dataclass
 class CausalLMCollator:
-    tokenizer
+    tokenizer: PreTrainedTokenizerBase
     pad_to_multiple_of: int = 8
     label_pad_token_id: int = -100
 
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         labels = [f["labels"] for f in features]
-        inputs = [{k: v for k, v in f.items() if k != "labels"} for f in features]
+        allowed = {"input_ids", "attention_mask"}
+        inputs = []
+        for f in features:
+            item = {k: v for k, v in f.items() if k in allowed}
+            if not item:
+                raise ValueError("Batch not tokenized: expected 'input_ids' (and 'attention_mask').")
+            inputs.append(item)
 
         batch = self.tokenizer.pad(
             inputs,
@@ -51,9 +55,9 @@ class NBARecapDataModule(pl.LightningDataModule):
         env_folder: str,
         model_name: str,
         batch_size: int = 8,
-        max_length: int = 4096,
-        max_source_length: int = 3072,
-        max_target_length: int = 1024,
+        max_length: int = 2048,
+        max_source_length: int = 1536,  # Reduced from 3072 to save memory
+        max_target_length: int = 512,   # Reduced from 1024 to save memory
         num_workers: int = 4,
         train_samples: int = -1,
         val_samples: int = -1,
@@ -79,7 +83,7 @@ class NBARecapDataModule(pl.LightningDataModule):
 
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         logger.info(f"Initializing tokenizer with model: {model_name}")
-        self.tokenizer = AutoTokenizer.from_pretrained(replace_first_dash(model_name), use_fast=False)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
 
         if getattr(self.tokenizer, "pad_token", None) is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -98,22 +102,24 @@ class NBARecapDataModule(pl.LightningDataModule):
         val_filename = filename.replace(".csv", "_val.parquet")
         test_filename = filename.replace(".csv", "_test.parquet")
 
+        source_data_columns = ['date', 'home_team', 'away_team', 'query', 'recap_link', 'game_recap', 'game_recap_summary']
+
         input_train_path = f"{self.preprocessed_input_data_folder}/preprocessed/{train_filename}"
         logger.info(f"Reading train parquet data from S3: {input_train_path}")
         self.train_dataset = load_dataset("parquet", data_files=input_train_path)["train"]
-        self.train_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.train_dataset.set_format(type="torch", columns=source_data_columns)
         logger.info(f"Loaded {len(self.train_dataset)} train rows from S3.")
 
         input_val_path = f"{self.preprocessed_input_data_folder}/preprocessed/{val_filename}"
         logger.info(f"Reading valid parquet data from S3: {input_val_path}")
         self.val_dataset = load_dataset("parquet", data_files=input_val_path)["train"]
-        self.val_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.val_dataset.set_format(type="torch", columns=source_data_columns)
         logger.info(f"Loaded {len(self.val_dataset)} valid rows from S3.")
 
         input_test_path = f"{self.preprocessed_input_data_folder}/preprocessed/{test_filename}"
         logger.info(f"Reading test parquet data from S3: {input_test_path}")
         self.test_dataset = load_dataset("parquet", data_files=input_test_path)["train"]
-        self.test_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.test_dataset.set_format(type="torch", columns=source_data_columns)
         logger.info(f"Loaded {len(self.test_dataset)} test rows from S3.")
 
 

@@ -1,6 +1,7 @@
 import os
 import gc
 import json
+import time
 import pandas as pd
 import torch
 from omegaconf import DictConfig
@@ -45,6 +46,117 @@ def run_metric_evaluation(title, cfg, dataloader_samples, metrics_dict, model, d
     gc.collect()
     return results_df
 
+def run_batch_metric_evaluation(cfg, model, device, env_folder):
+    """Run all metrics on the same dataloader to avoid reloading data and model"""
+    start_time = time.time()
+    
+    logger.info("Starting batch metric evaluation")
+    
+    # Use the maximum number of samples needed for any metric
+    max_samples = max(
+        cfg.evaluation.test_samples_lexical_metrics,
+        cfg.evaluation.test_samples_semantic_metrics,
+        cfg.evaluation.test_samples_ai_as_judge_metrics
+    )
+    
+    logger.info(f"Setting up dataloader for {max_samples} samples")
+    dataloader_start = time.time()
+    dataloader = setup_dataloader(cfg, max_samples, env_folder)
+    dataloader_time = time.time() - dataloader_start
+    logger.info(f"Dataloader setup completed in {dataloader_time:.2f}s")
+    
+    # Get all predictions at once (this is the expensive part)
+    logger.info("Generating predictions for all samples")
+    prediction_start = time.time()
+    predictions = model.summarize_recaps(dataloader, max_length=cfg.model.max_length)
+    prediction_time = time.time() - prediction_start
+    logger.info(f"Text generation completed in {prediction_time:.2f}s for {len(predictions)} samples")
+    if len(predictions) > 0:
+        logger.info(f"Average time per sample: {prediction_time/len(predictions):.2f}s")
+    else:
+        logger.warning("No predictions generated, cannot calculate average time per sample")
+    
+    # Extract references and instructions
+    all_references = []
+    all_instructions = []
+    
+    for batch in dataloader:
+        inputs = {key: value.to(device) for key, value in batch.items()}
+        
+        batch_references = [
+            model.tokenizer.decode(reference[reference != -100], skip_special_tokens=True)
+            for reference in inputs["labels"]
+        ]
+        all_references.extend(batch_references)
+        
+        batch_instructions = [
+            model.tokenizer.decode(input_id, skip_special_tokens=True)
+            for input_id in inputs["input_ids"]
+        ]
+        all_instructions.extend(batch_instructions)
+    
+    # Limit to the actual number of predictions generated
+    actual_samples = len(predictions)
+    all_references = all_references[:actual_samples]
+    all_instructions = all_instructions[:actual_samples]
+    
+    logger.info(f"Generated {actual_samples} predictions, processing metrics")
+    
+    # Compute all metrics using the same predictions
+    results = {}
+    
+    # Lexical metrics
+    if cfg.evaluation.test_samples_lexical_metrics > 0:
+        lexical_samples = min(cfg.evaluation.test_samples_lexical_metrics, actual_samples)
+        lexical_metrics_dict = {
+            "rouge_score": calculate_rouge,
+            "bleu_score": calculate_bleu,
+        }
+        lexical_predictions = predictions[:lexical_samples]
+        lexical_references = all_references[:lexical_samples]
+        lexical_instructions = all_instructions[:lexical_samples]
+        
+        for metric_name, metric_fn in lexical_metrics_dict.items():
+            results[f"lexical_{metric_name}"] = metric_fn(lexical_predictions, lexical_references, lexical_instructions)
+    
+    # Semantic metrics
+    if cfg.evaluation.test_samples_semantic_metrics > 0:
+        semantic_samples = min(cfg.evaluation.test_samples_semantic_metrics, actual_samples)
+        semantic_metrics_dict = {
+            "bert_score": calculate_bertscore
+        }
+        semantic_predictions = predictions[:semantic_samples]
+        semantic_references = all_references[:semantic_samples]
+        semantic_instructions = all_instructions[:semantic_samples]
+        
+        for metric_name, metric_fn in semantic_metrics_dict.items():
+            results[f"semantic_{metric_name}"] = metric_fn(semantic_predictions, semantic_references, semantic_instructions)
+    
+    # AI as a Judge metrics
+    if cfg.evaluation.test_samples_ai_as_judge_metrics > 0:
+        ai_samples = min(cfg.evaluation.test_samples_ai_as_judge_metrics, actual_samples)
+        ai_metrics_dict = {
+            "factual_consistency": calculate_factual_consistency,
+            "relevance": calculate_relevance,
+            "completeness": calculate_completeness,
+            "conciseness": calculate_conciseness,
+            "clarity": calculate_clarity,
+        }
+        ai_predictions = predictions[:ai_samples]
+        ai_references = all_references[:ai_samples]
+        ai_instructions = all_instructions[:ai_samples]
+        
+        for metric_name, metric_fn in ai_metrics_dict.items():
+            results[f"ai_judge_{metric_name}"] = metric_fn(ai_predictions, ai_references, ai_instructions)
+    
+    del dataloader
+    gc.collect()
+    
+    total_time = time.time() - start_time
+    logger.info(f"Batch metric evaluation completed in {total_time:.2f}s")
+    
+    return pd.DataFrame(results, index=[0]), predictions, prediction_time
+
 def evaluate_model(cfg: DictConfig):
     env_folder = os.getenv("ENV", "no-env")
     pipeline_run_id = os.getenv("PIPELINE_RUN_ID", "no-pipeline-id")
@@ -53,6 +165,15 @@ def evaluate_model(cfg: DictConfig):
         logger.info("Starting computing evaluation metrics")
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {device}")
+        
+        # Log GPU information if available
+        if torch.cuda.is_available():
+            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+            logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            logger.info(f"CUDA Version: {torch.version.cuda}")
+        else:
+            logger.warning("CUDA not available, using CPU")
 
         logger.info("Defining evaluation metrics to be computed")
         lexical_metrics_dict = {
@@ -79,42 +200,61 @@ def evaluate_model(cfg: DictConfig):
         peft_method = cfg.model.peft_method
 
         model = load_model(model_ckpt, model_name, model_type, device, peft_method)
+        
+        # Verify model device placement
+        model_device = next(model.parameters()).device
+        logger.info(f"Model device: {model_device}")
+        if torch.cuda.is_available() and model_device.type == 'cuda':
+            logger.info(f"✅ Model successfully loaded on GPU: {torch.cuda.get_device_name(model_device.index)}")
+            logger.info(f"GPU Memory after model load: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+        else:
+            logger.warning(f"⚠️ Model is on {model_device}, not on GPU as expected")
 
         results = []
 
         model_name_df = pd.DataFrame({"pipeline_run_id": [pipeline_run_id]})
         results.append(model_name_df)
 
-        # Lexical metrics #def run_metric_evaluation(title, cfg, dataloader_samples, metrics_dict, model, device):
-        logger.info("Computing lexical metrics")
-        lexical_metrics_results_df = run_metric_evaluation(
-            "lexical metrics", cfg, cfg.evaluation.test_samples_lexical_metrics, lexical_metrics_dict, model, device, env_folder
-        )
-        results.append(lexical_metrics_results_df)
-
-        logger.info("Computing semantic metrics")
-        semantical_metrics_results_df = run_metric_evaluation(
-            "semantical metrics", cfg, cfg.evaluation.test_samples_semantic_metrics, semantical_metrics_dict, model, device, env_folder
-        )
-        results.append(semantical_metrics_results_df)
-
-        logger.info("Computing AI as a Judge metrics")
-        ai_as_a_judge_metrics_results_df = run_metric_evaluation(
-            "ai as a judge metrics", cfg, cfg.evaluation.test_samples_ai_as_judge_metrics, ai_as_a_judge_metrics_dict, model, device, env_folder
-        )
-        results.append(ai_as_a_judge_metrics_results_df)
+        # Run all metrics in batch to avoid reloading model and data
+        logger.info("Computing all metrics in batch")
+        batch_metrics_results_df, predictions, prediction_time = run_batch_metric_evaluation(cfg, model, device, env_folder)
+        results.append(batch_metrics_results_df)
 
         logger.info("Computing system metrics")
-        dataloader = setup_dataloader(cfg, cfg.evaluation.test_samples_semantic_metrics, env_folder)
-        latency = calculate_average_latency(model, dataloader, cfg.model.max_length)
+        system_start = time.time()
+        
+        size_start = time.time()
         size_params = calculate_model_size_in_params(model)
+        size_time = time.time() - size_start
+        logger.info(f"Model size calculation completed in {size_time:.2f}s")
+        
+        # Calculate latency using the already-generated predictions for efficiency
+        latency_start = time.time()
+        if len(predictions) > 0:
+            # Use a small subset of existing predictions to calculate latency
+            latency_samples = min(3, len(predictions))
+            logger.info(f"Calculating latency using {latency_samples} existing predictions")
+            
+            # Calculate latency from the batch generation we already did
+            # This avoids reloading the model and regenerating text
+            latency = prediction_time / len(predictions)  # Average time per sample from batch generation
+        else:
+            logger.warning("No predictions available for latency calculation")
+            latency = 0.0
+            
+        latency_time = time.time() - latency_start
+        logger.info(f"Latency calculation completed in {latency_time:.2f}s")
+        
+        system_time = time.time() - system_start
+        logger.info(f"All system metrics completed in {system_time:.2f}s")
+        
         system_metrics_df = pd.DataFrame({
             "model_size_params": [size_params],
             "avg_latency_sec": [latency],
         })
         results.append(system_metrics_df)
 
-        del dataloader, model
+        del model
         gc.collect()
 
         model_metrics_df = pd.concat(results, axis=1)

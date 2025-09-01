@@ -216,27 +216,70 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         pass
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        # Log GPU memory before forward pass
+        if torch.cuda.is_available():
+            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
+                logger.debug(f"Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
+        
         outputs = self(**batch)
         loss = outputs.loss
 
+        # Log GPU memory after forward pass
+        if torch.cuda.is_available():
+            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
+                logger.debug(f"Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
+                logger.debug(f"Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
+        
         self.log("train_loss", loss, prog_bar=True)
         self.training_step_outputs.append(loss.detach().cpu())
 
         return loss
 
 
-    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
+    # def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
+    #     outputs = self(**batch)
+    #     loss = outputs.loss
+
+    #     self.log("val_loss", loss, prog_bar=True)
+    #     self.validation_step_outputs.append(loss.detach().cpu())
+
+    def validation_step(self, batch, batch_idx):
+        # Log GPU memory before forward pass
+        if torch.cuda.is_available():
+            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
+                logger.debug(f"Val Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
+        
         outputs = self(**batch)
         loss = outputs.loss
-
-        self.log("val_loss", loss, prog_bar=True)
+        
+        # Log GPU memory after forward pass
+        if torch.cuda.is_available():
+            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
+            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
+                logger.debug(f"Val Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
+                logger.debug(f"Val Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
+        
+        # keep per-step if you want, but make sure on_epoch=True is set:
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
         self.validation_step_outputs.append(loss.detach().cpu())
 
 
-    def on_validation_epoch_end(self) -> None:
-        avg_val_loss = torch.stack(self.validation_step_outputs).mean()
-        self.log("epoch_val_loss", avg_val_loss)
+    # def on_validation_epoch_end(self) -> None:
+    #     avg_val_loss = torch.stack(self.validation_step_outputs).mean()
+    #     self.log("epoch_val_loss", avg_val_loss)
 
+    #     self.validation_step_outputs.clear()
+
+    def on_validation_epoch_end(self):
+        if self.validation_step_outputs:
+            avg = torch.stack(self.validation_step_outputs).mean()
+        else:
+            avg = torch.tensor(0.0, device=self.device)
+        self.log("val_loss", avg, prog_bar=True, on_epoch=True, sync_dist=False)   # <= important
+        self.log("epoch_val_loss", avg, on_epoch=True, sync_dist=False)            # optional alias
         self.validation_step_outputs.clear()
 
     def on_train_epoch_end(self) -> None:
@@ -244,6 +287,15 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         self.log("epoch_train_loss", avg_train_loss)
 
         self.training_step_outputs.clear()
+
+    def on_fit_end(self):
+        try:
+            if self.trainer is not None:
+                # If present, keep whatever we last logged; otherwise set a safe default
+                val = self.trainer.callback_metrics.get("val_loss", torch.tensor(0.0))
+                self.trainer.callback_metrics["val_loss"] = val
+        except Exception:
+            pass
 
     def configure_optimizers(self):
         optimizer = AdamW(
