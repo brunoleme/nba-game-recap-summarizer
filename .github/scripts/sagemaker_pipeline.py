@@ -151,16 +151,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         property_files=[evaluation_report],
     )
 
-    # Model registration removed - using checkpoints directly for inference
-    condition_step = ConditionStep(
-        name="CheckBertScoreCondition",
-        conditions=[ConditionGreaterThanOrEqualTo(
-            left=JsonGet(step_name=evaluation_step.name, property_file=evaluation_report, json_path="bert_score"),
-            right=0.8,
-        )],
-        if_steps=[],  # No model registration step
-        else_steps=[],
-    )
+    # Condition step removed - no model registration needed
 
     return Pipeline(
         name="NBARecapModelPipeline",
@@ -186,5 +177,5 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             deployment_instance_type,
             project_config,
         ],
-        steps=[preprocessing_step, training_step, evaluation_step, condition_step],
+        steps=[preprocessing_step, training_step, evaluation_step],
     )

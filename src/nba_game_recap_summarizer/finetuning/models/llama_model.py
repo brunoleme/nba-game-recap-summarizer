@@ -255,6 +255,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
         try:
+            # Load checkpoint only once
             checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
 
             # Fallback to checkpoint hyperparams if not provided
@@ -262,6 +263,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             model_type = model_type or checkpoint.hparams.model_type
             peft_method = peft_method or checkpoint.hparams.peft_method
 
+            # Create new model instance
             model = LlamaRecapSummarizationModel(
                 model_name=model_name,
                 model_type=model_type or "llama",
@@ -269,14 +271,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 use_quantization=False,
             )
 
-            checkpoint_state = LlamaRecapSummarizationModel.load_from_checkpoint(
-                checkpoint_path,
-                model_name=model_name,
-                model_type=model_type or "llama",
-                peft_method=peft_method,
-            ).state_dict()
-
+            # Use the already loaded checkpoint state
+            checkpoint_state = checkpoint.state_dict()
             model.load_state_dict(checkpoint_state, strict=False)  # allow for PEFT heads etc.
+            
             logger.success("Model restored successfully")
             return model
 

@@ -47,6 +47,9 @@ def run_metric_evaluation(title, cfg, dataloader_samples, metrics_dict, model, d
 
 def run_batch_metric_evaluation(cfg, model, device, env_folder):
     """Run all metrics on the same dataloader to avoid reloading data and model"""
+    import time
+    start_time = time.time()
+    
     logger.info("Starting batch metric evaluation")
     
     # Use the maximum number of samples needed for any metric
@@ -56,12 +59,19 @@ def run_batch_metric_evaluation(cfg, model, device, env_folder):
         cfg.evaluation.test_samples_ai_as_judge_metrics
     )
     
-    # Setup dataloader once
+    logger.info(f"Setting up dataloader for {max_samples} samples")
+    dataloader_start = time.time()
     dataloader = setup_dataloader(cfg, max_samples, env_folder)
+    dataloader_time = time.time() - dataloader_start
+    logger.info(f"Dataloader setup completed in {dataloader_time:.2f}s")
     
     # Get all predictions at once (this is the expensive part)
     logger.info("Generating predictions for all samples")
+    prediction_start = time.time()
     predictions = model.summarize_recaps(dataloader, max_length=cfg.model.max_length)
+    prediction_time = time.time() - prediction_start
+    logger.info(f"Text generation completed in {prediction_time:.2f}s for {len(predictions)} samples")
+    logger.info(f"Average time per sample: {prediction_time/len(predictions):.2f}s")
     
     # Extract references and instructions
     all_references = []
@@ -139,6 +149,9 @@ def run_batch_metric_evaluation(cfg, model, device, env_folder):
     del dataloader
     gc.collect()
     
+    total_time = time.time() - start_time
+    logger.info(f"Batch metric evaluation completed in {total_time:.2f}s")
+    
     return pd.DataFrame(results, index=[0])
 
 def evaluate_model(cfg: DictConfig):
@@ -187,16 +200,28 @@ def evaluate_model(cfg: DictConfig):
         results.append(batch_metrics_results_df)
 
         logger.info("Computing system metrics")
+        system_start = time.time()
+        
+        size_start = time.time()
         size_params = calculate_model_size_in_params(model)
+        size_time = time.time() - size_start
+        logger.info(f"Model size calculation completed in {size_time:.2f}s")
         
         # Calculate latency using a small subset of the data for efficiency
+        latency_start = time.time()
         max_samples = max(
             cfg.evaluation.test_samples_lexical_metrics,
             cfg.evaluation.test_samples_semantic_metrics,
             cfg.evaluation.test_samples_ai_as_judge_metrics
         )
+        logger.info(f"Setting up latency dataloader for {min(5, max_samples)} samples")
         latency_dataloader = setup_dataloader(cfg, min(5, max_samples), env_folder)
         latency = calculate_average_latency(model, latency_dataloader, cfg.model.max_length)
+        latency_time = time.time() - latency_start
+        logger.info(f"Latency calculation completed in {latency_time:.2f}s")
+        
+        system_time = time.time() - system_start
+        logger.info(f"All system metrics completed in {system_time:.2f}s")
         
         system_metrics_df = pd.DataFrame({
             "model_size_params": [size_params],
