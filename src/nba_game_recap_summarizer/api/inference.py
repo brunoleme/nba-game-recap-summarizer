@@ -107,7 +107,10 @@ async def summarize_recap(request: GameRecapRequest):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Health check endpoint that verifies model is loaded."""
+    if model is None or not model.is_loaded():
+        raise HTTPException(status_code=503, detail="Model not loaded or not ready")
+    return {"status": "healthy", "model_loaded": True}
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):

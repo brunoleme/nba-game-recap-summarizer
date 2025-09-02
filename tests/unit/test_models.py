@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch, MagicMock
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
@@ -87,3 +88,75 @@ def test_llama_model_with_peft(peft_method):
     game_recap_summary = model.summarize_recap(game_recap, max_length=50)
     assert isinstance(game_recap_summary, str)
     assert len(game_recap_summary) > 0
+
+def test_model_is_loaded(default_llama_model):
+    """Test the is_loaded method."""
+    # Model should be loaded after initialization
+    assert default_llama_model.is_loaded() == True
+    
+    # Test with None model
+    model = LlamaRecapSummarizationModel(
+        model_name="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        model_type="llama",
+        use_quantization=False,
+    )
+    # Temporarily set model to None to test the method
+    original_model = model.model
+    model.model = None
+    assert model.is_loaded() == False
+    
+    # Restore model
+    model.model = original_model
+    assert model.is_loaded() == True
+
+@patch('nba_game_recap_summarizer.finetuning.models.llama_model.boto3.client')
+@patch('nba_game_recap_summarizer.finetuning.models.llama_model.tempfile.NamedTemporaryFile')
+@patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint')
+def test_load_model_from_checkpoint_s3(mock_load_from_checkpoint, mock_tempfile, mock_boto3_client):
+    """Test loading model from S3 checkpoint."""
+    # Setup mocks
+    mock_s3_client = MagicMock()
+    mock_boto3_client.return_value = mock_s3_client
+    
+    # Mock file size response
+    mock_s3_client.head_object.return_value = {'ContentLength': 1024 * 1024 * 100}  # 100MB
+    
+    # Mock temporary file
+    mock_temp_file = MagicMock()
+    mock_temp_file.name = '/tmp/test_model.ckpt'
+    mock_tempfile.return_value = mock_temp_file
+    
+    # Mock successful model loading
+    mock_model = MagicMock()
+    mock_model.is_loaded.return_value = True
+    mock_load_from_checkpoint.return_value = mock_model
+    
+    # Test S3 path
+    s3_path = "s3://test-bucket/models/test_model.ckpt"
+    
+    # Call the method
+    result = LlamaRecapSummarizationModel.load_model_from_checkpoint(s3_path)
+    
+    # Verify S3 client was called correctly
+    mock_s3_client.head_object.assert_called_once_with(Bucket='test-bucket', Key='models/test_model.ckpt')
+    mock_s3_client.download_file.assert_called_once()
+    
+    # Verify model was loaded from local path
+    mock_load_from_checkpoint.assert_called_once()
+    
+    # Verify result
+    assert result == mock_model
+
+def test_load_model_from_checkpoint_local():
+    """Test loading model from local checkpoint."""
+    with patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint') as mock_load:
+        mock_model = MagicMock()
+        mock_model.is_loaded.return_value = True
+        mock_load.return_value = mock_model
+        
+        local_path = "/local/path/model.ckpt"
+        result = LlamaRecapSummarizationModel.load_model_from_checkpoint(local_path)
+        
+        # Should call load_from_checkpoint with the same path
+        mock_load.assert_called_once_with(local_path)
+        assert result == mock_model
