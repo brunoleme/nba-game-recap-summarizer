@@ -49,6 +49,14 @@ class NBARecapDataPreprocessingModule():
         logger.info(f"Reading CSV from S3 in the mounted path: {source_data_path}")
         df = pd.read_csv(source_data_path)
         assert {"game_recap", "game_recap_summary"}.issubset(df.columns), "CSV must contain 'game_recap' and 'game_recap_summary' columns"
+        
+        # Clean data: remove rows with None values in critical columns
+        initial_count = len(df)
+        df = df.dropna(subset=["game_recap", "game_recap_summary"])
+        cleaned_count = len(df)
+        if initial_count != cleaned_count:
+            logger.warning(f"Removed {initial_count - cleaned_count} rows with None values in game_recap or game_recap_summary")
+        
         self.dataset = Dataset.from_pandas(df)
         logger.info(f"Loaded {len(self.dataset)} rows from S3.")
 
@@ -97,8 +105,10 @@ class NBARecapDataPreprocessingModule():
         )
 
     def _log_dataset_statistics(self, dataset, split_name: str) -> None:
-        recap_lengths = [len(x.split()) for x in dataset["game_recap"]]
-        summaries_lengths = [len(x.split()) for x in dataset["game_recap_summary"]]
+        # Handle None values in game_recap
+        recap_lengths = [len(x.split()) if x is not None else 0 for x in dataset["game_recap"]]
+        # Handle None values in game_recap_summary
+        summaries_lengths = [len(x.split()) if x is not None else 0 for x in dataset["game_recap_summary"]]
 
         logger.info(f"{split_name.capitalize()} set statistics:")
         logger.info(
