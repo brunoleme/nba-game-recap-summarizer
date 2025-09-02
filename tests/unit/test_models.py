@@ -111,8 +111,9 @@ def test_model_is_loaded(default_llama_model):
 
 @patch('nba_game_recap_summarizer.finetuning.models.llama_model.boto3.client')
 @patch('nba_game_recap_summarizer.finetuning.models.llama_model.tempfile.NamedTemporaryFile')
+@patch('nba_game_recap_summarizer.finetuning.models.llama_model.Path')
 @patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint')
-def test_load_model_from_checkpoint_s3(mock_load_from_checkpoint, mock_tempfile, mock_boto3_client):
+def test_load_model_from_checkpoint_s3(mock_load_from_checkpoint, mock_path, mock_tempfile, mock_boto3_client):
     """Test loading model from S3 checkpoint."""
     # Setup mocks
     mock_s3_client = MagicMock()
@@ -125,6 +126,12 @@ def test_load_model_from_checkpoint_s3(mock_load_from_checkpoint, mock_tempfile,
     mock_temp_file = MagicMock()
     mock_temp_file.name = '/tmp/test_model.ckpt'
     mock_tempfile.return_value = mock_temp_file
+    
+    # Mock Path operations
+    mock_path_instance = MagicMock()
+    mock_path_instance.exists.return_value = True
+    mock_path_instance.stat.return_value.st_size = 1024 * 1024 * 100  # 100MB
+    mock_path.return_value = mock_path_instance
     
     # Mock successful model loading
     mock_model = MagicMock()
