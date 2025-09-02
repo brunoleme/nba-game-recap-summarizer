@@ -109,53 +109,8 @@ def test_model_is_loaded(default_llama_model):
     model.model = original_model
     assert model.is_loaded() == True
 
-@patch('nba_game_recap_summarizer.finetuning.models.llama_model.boto3.client')
-@patch('nba_game_recap_summarizer.finetuning.models.llama_model.tempfile.NamedTemporaryFile')
-@patch('nba_game_recap_summarizer.finetuning.models.llama_model.Path')
-@patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint')
-def test_load_model_from_checkpoint_s3(mock_load_from_checkpoint, mock_path, mock_tempfile, mock_boto3_client):
-    """Test loading model from S3 checkpoint."""
-    # Setup mocks
-    mock_s3_client = MagicMock()
-    mock_boto3_client.return_value = mock_s3_client
-    
-    # Mock file size response
-    mock_s3_client.head_object.return_value = {'ContentLength': 1024 * 1024 * 100}  # 100MB
-    
-    # Mock temporary file
-    mock_temp_file = MagicMock()
-    mock_temp_file.name = '/tmp/test_model.ckpt'
-    mock_tempfile.return_value = mock_temp_file
-    
-    # Mock Path operations
-    mock_path_instance = MagicMock()
-    mock_path_instance.exists.return_value = True
-    mock_path_instance.stat.return_value.st_size = 1024 * 1024 * 100  # 100MB
-    mock_path.return_value = mock_path_instance
-    
-    # Mock successful model loading
-    mock_model = MagicMock()
-    mock_model.is_loaded.return_value = True
-    mock_load_from_checkpoint.return_value = mock_model
-    
-    # Test S3 path
-    s3_path = "s3://test-bucket/models/test_model.ckpt"
-    
-    # Call the method
-    result = LlamaRecapSummarizationModel.load_model_from_checkpoint(s3_path)
-    
-    # Verify S3 client was called correctly
-    mock_s3_client.head_object.assert_called_once_with(Bucket='test-bucket', Key='models/test_model.ckpt')
-    mock_s3_client.download_file.assert_called_once()
-    
-    # Verify model was loaded from local path
-    mock_load_from_checkpoint.assert_called_once()
-    
-    # Verify result
-    assert result == mock_model
-
-def test_load_model_from_checkpoint_local():
-    """Test loading model from local checkpoint."""
+def test_load_model_from_checkpoint():
+    """Test loading model from checkpoint (S3 or local)."""
     with patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint') as mock_load:
         mock_model = MagicMock()
         mock_model.is_loaded.return_value = True

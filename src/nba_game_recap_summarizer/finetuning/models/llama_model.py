@@ -1,10 +1,5 @@
 import os
-import tempfile
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
-from pathlib import Path
-
-import boto3
 from loguru import logger
 from peft import get_peft_model, prepare_model_for_kbit_training
 import torch
@@ -278,58 +273,6 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         return cls(model_name=path, tokenizer=tokenizer, model=model, **kwargs)
 
     @staticmethod
-    def _download_model_from_s3(s3_path: str) -> str:
-        """Download model from S3 to a temporary local file."""
-        try:
-            logger.info(f"Downloading model from S3: {s3_path}")
-            
-            # Parse S3 URL
-            if not s3_path.startswith('s3://'):
-                raise ValueError(f"Invalid S3 path: {s3_path}")
-            
-            parsed = urlparse(s3_path)
-            bucket = parsed.netloc
-            key = parsed.path.lstrip('/')
-            
-            # Create temporary file
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.ckpt')
-            temp_path = temp_file.name
-            temp_file.close()
-            
-            # Get file size for progress tracking
-            s3_client = boto3.client('s3')
-            try:
-                response = s3_client.head_object(Bucket=bucket, Key=key)
-                file_size = response['ContentLength']
-                logger.info(f"Model file size: {file_size / (1024*1024*1024):.2f} GB")
-            except Exception as e:
-                logger.warning(f"Could not get file size: {str(e)}")
-                file_size = None
-            
-            # Download file with progress callback
-            def progress_callback(bytes_transferred):
-                if file_size:
-                    percent = (bytes_transferred / file_size) * 100
-                    logger.info(f"Download progress: {percent:.1f}% ({bytes_transferred / (1024*1024):.1f} MB / {file_size / (1024*1024):.1f} MB)")
-                else:
-                    logger.info(f"Downloaded: {bytes_transferred / (1024*1024):.1f} MB")
-            
-            # Download file
-            s3_client.download_file(bucket, key, temp_path, Callback=progress_callback)
-            
-            # Verify file was downloaded
-            if not Path(temp_path).exists():
-                raise RuntimeError(f"Downloaded file not found at {temp_path}")
-            
-            actual_size = Path(temp_path).stat().st_size
-            logger.info(f"Model downloaded successfully to: {temp_path} (Size: {actual_size / (1024*1024):.1f} MB)")
-            return temp_path
-            
-        except Exception as e:
-            logger.error(f"Failed to download model from S3: {str(e)}")
-            raise RuntimeError(f"Model download failed: {str(e)}")
-
-    @staticmethod
     def load_model_from_checkpoint(
         checkpoint_path: str,
         model_name: Optional[str] = None,
@@ -339,31 +282,12 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Check if checkpoint path is S3 URL
-            if checkpoint_path.startswith('s3://'):
-                logger.info("Checkpoint path is S3 URL, downloading locally first")
-                local_checkpoint_path = LlamaRecapSummarizationModel._download_model_from_s3(checkpoint_path)
-                should_cleanup = True
-            else:
-                logger.info("Checkpoint path is local, loading directly")
-                local_checkpoint_path = checkpoint_path
-                should_cleanup = False
-            
-            # Load checkpoint from local path
-            checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(local_checkpoint_path)
+            # Load checkpoint directly from S3 or local path
+            checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
 
             # The checkpoint is already fully loaded with model, tokenizer, and state
             # Just return it directly instead of creating a new instance
             logger.success("Model restored successfully from checkpoint")
-            
-            # Clean up temporary file if we downloaded it
-            if should_cleanup:
-                try:
-                    os.unlink(local_checkpoint_path)
-                    logger.info("Cleaned up temporary model file")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary file: {str(e)}")
-            
             return checkpoint
 
         except Exception as e:
