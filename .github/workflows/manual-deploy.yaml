@@ -1,0 +1,95 @@
+name: Manual Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      pipeline_id:
+        description: 'SageMaker Pipeline ID to deploy'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_URI: 339713123413.dkr.ecr.us-east-1.amazonaws.com/nba-recap-summarizer
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: make install
+
+    - name: Run inference tests
+      run: make test-inference ENV=${{ github.event.inputs.environment }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Construct model path from pipeline ID
+      id: set-model-path
+      run: |
+        PIPELINE_ID="${{ github.event.inputs.pipeline_id }}"
+        ENVIRONMENT="${{ github.event.inputs.environment }}"
+        MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/checkpoints/best_model.ckpt"
+        echo "MODEL_PATH=$MODEL_PATH" >> $GITHUB_OUTPUT
+        echo "Constructed model path: $MODEL_PATH"
+
+    - name: Build, tag, and push inference image
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+        MODEL_PATH: ${{ steps.set-model-path.outputs.MODEL_PATH }}
+      run: |
+        # Build and push the inference image
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG \
+          --build-arg MODEL_PATH="$MODEL_PATH" \
+          -f docker/inference.Dockerfile .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG
+
+    - name: Deploy with Terraform
+      env:
+        TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
+        TF_VAR_model_path: ${{ steps.set-model-path.outputs.MODEL_PATH }}
+        TF_VAR_aws_region: ${{ env.AWS_REGION }}
+      run: |
+        cd terraform/envs/${{ github.event.inputs.environment }}
+        SHORT_SHA="${GITHUB_SHA::7}"
+        export TF_VAR_inference_image_uri="$ECR_REPOSITORY_URI:$SHORT_SHA"
+        terraform init -reconfigure
+        terraform apply -auto-approve
+
+    - name: Verify deployment
+      run: |
+        echo "Deployment completed successfully!"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Pipeline ID: ${{ github.event.inputs.pipeline_id }}"
+        echo "Model Path: ${{ steps.set-model-path.outputs.MODEL_PATH }}"
+        echo "Image URI: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}"

@@ -1,6 +1,5 @@
 import os
 from typing import Any, Dict, List, Optional
-
 from loguru import logger
 from peft import get_peft_model, prepare_model_for_kbit_training
 import torch
@@ -283,7 +282,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Load checkpoint directly - PyTorch Lightning supports S3 URLs
+            # Load checkpoint directly from S3 or local path
             checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
 
             # The checkpoint is already fully loaded with model, tokenizer, and state
@@ -294,3 +293,15 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         except Exception as e:
             logger.error(f"Failed to restore model: {str(e)}")
             raise RuntimeError(f"Restore failed: {e}")
+
+    def is_loaded(self) -> bool:
+        """Check if the model is properly loaded and ready for inference."""
+        try:
+            return (
+                self.model is not None and 
+                self.tokenizer is not None and
+                hasattr(self, 'model') and
+                hasattr(self, 'tokenizer')
+            )
+        except Exception:
+            return False

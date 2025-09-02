@@ -39,3 +39,9 @@ variable "model_path" {
   type        = string
   description = "S3 path to packaged model"
 }
+
+variable "enable_canary" {
+  description = "Enable canary deployment (requires both stable and candidate images)"
+  type        = bool
+  default     = true
+}
