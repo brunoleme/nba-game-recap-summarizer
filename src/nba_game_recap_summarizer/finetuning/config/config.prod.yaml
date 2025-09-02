@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 4096
+  max_length: 2048  # Reduced from 4096 to fit in Tesla T4 memory with 3B model
 
 lora:
   r: 8
@@ -18,8 +18,8 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 2  # Reduced from 4 to save memory
-  accumulate_grad_batches: 2  # Effective batch size = 2 * 2 = 4
+  batch_size: 1  # Reduced to 1 to fit 3B model in Tesla T4 memory
+  accumulate_grad_batches: 4  # Effective batch size = 1 * 4 = 4
   learning_rate: 2e-5
   warmup_steps: 500
   weight_decay: 0.01
@@ -31,6 +31,9 @@ training:
   devices: "auto"
   precision: "16-mixed"  # Use mixed precision to save memory
   gradient_checkpointing: true  # Enable gradient checkpointing to save memory
+  # Additional memory optimizations for Tesla T4 with 3B model
+  enable_model_summary: false  # Disable model summary to save memory
+  log_every_n_steps: 10  # Reduce logging frequency to save memory
 
 data:
   train_samples: 40000  # Use -1 for all training data

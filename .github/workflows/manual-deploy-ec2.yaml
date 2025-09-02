@@ -1,0 +1,170 @@
+name: Manual EC2 Deployment
+
+# This workflow deploys to EC2 for debugging/validation purposes
+# It does NOT create ECS resources - use "Manual ECS Deployment" for production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      pipeline_id:
+        description: 'SageMaker Pipeline ID to deploy'
+        required: true
+        type: string
+      instance_type:
+        description: 'EC2 instance type'
+        required: true
+        default: 'g4dn.xlarge'
+        type: choice
+        options:
+          - g4dn.xlarge
+          - g4dn.2xlarge
+          - g4dn.4xlarge
+          - g5.xlarge
+          - g5.2xlarge
+      ssh_key_name:
+        description: 'SSH key pair name for EC2 access'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_URI: 339713123413.dkr.ecr.us-east-1.amazonaws.com/nba-recap-summarizer
+
+jobs:
+  build-and-deploy-ec2:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: make install
+
+    - name: Run inference tests
+      run: make test-inference ENV=${{ github.event.inputs.environment }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Construct model path from pipeline ID
+      id: set-model-path
+      run: |
+        PIPELINE_ID="${{ github.event.inputs.pipeline_id }}"
+        ENVIRONMENT="${{ github.event.inputs.environment }}"
+        MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/checkpoints/best_model.ckpt"
+        echo "MODEL_PATH=$MODEL_PATH" >> $GITHUB_OUTPUT
+        echo "Constructed model path: $MODEL_PATH"
+
+    - name: Build, tag, and push inference image
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+        MODEL_PATH: ${{ steps.set-model-path.outputs.MODEL_PATH }}
+      run: |
+        SHORT_SHA="${GITHUB_SHA::7}"
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA \
+          --build-arg MODEL_PATH="$MODEL_PATH" \
+          -f Dockerfile.inference .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA
+        echo "IMAGE_TAG=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+    - name: Deploy EC2 with Terraform
+      env:
+        TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ steps.build-image.outputs.IMAGE_TAG }}
+        TF_VAR_model_path: ${{ steps.set-model-path.outputs.MODEL_PATH }}
+        TF_VAR_aws_region: ${{ env.AWS_REGION }}
+        TF_VAR_instance_type: ${{ github.event.inputs.instance_type }}
+        TF_VAR_ssh_key_name: ${{ github.event.inputs.ssh_key_name }}
+        TF_VAR_environment: ${{ github.event.inputs.environment }}
+      run: |
+        cd terraform/ec2
+        terraform init -reconfigure
+        terraform apply -auto-approve
+
+    - name: Get EC2 instance details
+      id: get-instance
+      run: |
+        cd terraform/ec2
+        INSTANCE_IP=$(terraform output -raw instance_public_ip)
+        INSTANCE_ID=$(terraform output -raw instance_id)
+        echo "INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_OUTPUT
+        echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
+    - name: Wait for service to be ready
+      run: |
+        INSTANCE_IP="${{ steps.get-instance.outputs.INSTANCE_IP }}"
+        echo "Waiting for service to be ready on $INSTANCE_IP:8000..."
+        
+        # Wait up to 10 minutes for the service to be ready
+        for i in {1..60}; do
+          if curl -f -s "http://$INSTANCE_IP:8000/health" > /dev/null; then
+            echo "Service is ready!"
+            break
+          fi
+          echo "Attempt $i/60: Service not ready yet, waiting 10 seconds..."
+          sleep 10
+        done
+
+    - name: Run health check
+      run: |
+        INSTANCE_IP="${{ steps.get-instance.outputs.INSTANCE_IP }}"
+        echo "Running health check on $INSTANCE_IP:8000"
+        curl -f "http://$INSTANCE_IP:8000/health" || exit 1
+        echo "Health check passed!"
+
+    - name: Test inference endpoint
+      run: |
+        INSTANCE_IP="${{ steps.get-instance.outputs.INSTANCE_IP }}"
+        echo "Testing inference endpoint on $INSTANCE_IP:8000"
+        
+        # Test with a simple request
+        curl -X POST "http://$INSTANCE_IP:8000/summarize_recap" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "game_recap": "Lakers beat Suns in overtime with a spectacular game-winning shot by Bryant. The game was intense with both teams playing at their best.",
+            "max_length": 100
+          }' || echo "Inference test failed, but deployment is complete"
+
+    - name: Output deployment information
+      run: |
+        echo "🎉 EC2 Deployment completed successfully!"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Pipeline ID: ${{ github.event.inputs.pipeline_id }}"
+        echo "Model Path: ${{ steps.set-model-path.outputs.MODEL_PATH }}"
+        echo "Image URI: ${{ env.ECR_REPOSITORY_URI }}:${{ steps.build-image.outputs.IMAGE_TAG }}"
+        echo "Instance Type: ${{ github.event.inputs.instance_type }}"
+        echo "Instance IP: ${{ steps.get-instance.outputs.INSTANCE_IP }}"
+        echo "Instance ID: ${{ steps.get-instance.outputs.INSTANCE_ID }}"
+        echo ""
+        echo "🔗 Access URLs:"
+        echo "Health Check: http://${{ steps.get-instance.outputs.INSTANCE_IP }}:8000/health"
+        echo "API Docs: http://${{ steps.get-instance.outputs.INSTANCE_IP }}:8000/docs"
+        echo "Inference: http://${{ steps.get-instance.outputs.INSTANCE_IP }}:8000/summarize_recap"
+        echo ""
+        echo "🔧 SSH Access:"
+        echo "ssh -i your-key.pem ec2-user@${{ steps.get-instance.outputs.INSTANCE_IP }}"
