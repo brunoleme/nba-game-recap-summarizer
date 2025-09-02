@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch, MagicMock
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
@@ -87,3 +88,37 @@ def test_llama_model_with_peft(peft_method):
     game_recap_summary = model.summarize_recap(game_recap, max_length=50)
     assert isinstance(game_recap_summary, str)
     assert len(game_recap_summary) > 0
+
+def test_model_is_loaded(default_llama_model):
+    """Test the is_loaded method."""
+    # Model should be loaded after initialization
+    assert default_llama_model.is_loaded() == True
+    
+    # Test with None model
+    model = LlamaRecapSummarizationModel(
+        model_name="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        model_type="llama",
+        use_quantization=False,
+    )
+    # Temporarily set model to None to test the method
+    original_model = model.model
+    model.model = None
+    assert model.is_loaded() == False
+    
+    # Restore model
+    model.model = original_model
+    assert model.is_loaded() == True
+
+def test_load_model_from_checkpoint():
+    """Test loading model from checkpoint (S3 or local)."""
+    with patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint') as mock_load:
+        mock_model = MagicMock()
+        mock_model.is_loaded.return_value = True
+        mock_load.return_value = mock_model
+        
+        local_path = "/local/path/model.ckpt"
+        result = LlamaRecapSummarizationModel.load_model_from_checkpoint(local_path)
+        
+        # Should call load_from_checkpoint with the same path
+        mock_load.assert_called_once_with(local_path)
+        assert result == mock_model

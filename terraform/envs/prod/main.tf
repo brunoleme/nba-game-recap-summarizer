@@ -15,7 +15,7 @@ module "alb" {
   vpc_id            = module.network.vpc_id
   public_subnet_ids = module.network.public_subnet_ids
   alb_sg_id         = module.network.alb_sg_id
-  enable_canary     = true
+  enable_canary     = var.enable_canary
   canary_weight_v1  = 90
   canary_weight_v2  = 10
 }
@@ -55,7 +55,7 @@ module "ecs" {
   model_path = var.model_path
 
   # ALB
-  enable_canary       = true
+  enable_canary       = var.enable_canary
   target_group_v1_arn        = module.alb.target_group_v1_arn   # v1 target group
   target_group_v2_arn     = module.alb.target_group_v2_arn   # v2 target group
 }
@@ -63,4 +63,5 @@ module "ecs" {
 module "iam" {
   source      = "../../iam"
   name_prefix = var.app_name
+  model_bucket_prefix = "nba-recap-summarization-model-"
 }

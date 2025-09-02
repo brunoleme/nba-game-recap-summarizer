@@ -3,9 +3,9 @@ FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel
 
 WORKDIR /app
 
-# Install uv
+# Install uv and awscli
 RUN pip install --upgrade pip && \
-    pip install uv
+    pip install uv awscli
 
 # Copy project files
 COPY . .
@@ -15,6 +15,19 @@ RUN uv pip install --system -e .
 
 # Set environment variable for Python module resolution
 ENV PYTHONPATH=/app
+
+# Create model directory
+RUN mkdir -p /app/models
+
+# Download model during build time if MODEL_PATH is provided
+ARG MODEL_PATH
+RUN if [ -n "$MODEL_PATH" ]; then \
+        echo "Downloading model from: $MODEL_PATH" && \
+        aws s3 cp "$MODEL_PATH" /app/models/model.ckpt && \
+        echo "Model downloaded successfully"; \
+    else \
+        echo "No MODEL_PATH provided, skipping model download"; \
+    fi
 
 # Expose port
 EXPOSE 8000

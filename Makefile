@@ -1,4 +1,4 @@
-.PHONY: install test lint format clean clean-artifacts check run train evaluate clean-venv create-venv clean-all sagemaker-trigger sagemaker-pipeline-trigger
+.PHONY: install test test-training test-inference lint format clean clean-artifacts check run train evaluate clean-venv create-venv clean-all sagemaker-trigger sagemaker-pipeline-trigger
 
 ENV ?= dev
 CONFIG_PATH ?= src/nba_game_recap_summarizer/finetuning/config
@@ -7,7 +7,9 @@ CONFIG_FILE := $(CONFIG_PATH)/config.$(ENV).yaml
 help:
 	@echo "Makefile commands:"
 	@echo "  install                      Install dependencies with uv"
-	@echo "  test                         Run tests"
+	@echo "  test                         Run all tests"
+	@echo "  test-training                Run training-related tests only"
+	@echo "  test-inference               Run inference-related tests only"
 	@echo "  lint                         Run code linters"
 	@echo "  format                       Auto-format code"
 	@echo "  clean                        Remove Python and test cache"
@@ -35,6 +37,14 @@ install:
 test:
 	rm -f .coverage .coverage.* || true
 	PYTHONPATH=. ENV=$(ENV) pytest tests/ --cov=src --cov-report=term-missing -s
+
+test-training:
+	rm -f .coverage .coverage.* || true
+	PYTHONPATH=. ENV=$(ENV) pytest tests/unit/test_data.py tests/unit/test_models.py tests/unit/test_metrics.py tests/integration/test_preprocessing_pipeline.py tests/integration/test_training_pipeline.py tests/integration/test_evaluation_pipeline.py tests/e2e/test_full_pipeline.py --cov=src --cov-report=term-missing -s
+
+test-inference:
+	rm -f .coverage .coverage.* || true
+	PYTHONPATH=. ENV=$(ENV) pytest tests/unit/test_inference.py tests/integration/test_inference_service.py tests/e2e/test_inference_e2e.py --cov=src --cov-report=term-missing -s
 
 lint:
 	ruff check .
