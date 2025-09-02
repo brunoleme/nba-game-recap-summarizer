@@ -1,4 +1,7 @@
-name: Manual Deployment
+name: Manual ECS Deployment
+
+# This workflow deploys to ECS for production use
+# For debugging/validation, use "Manual EC2 Deployment" instead
 
 on:
   workflow_dispatch:
@@ -74,7 +77,7 @@ jobs:
           -f docker/inference.Dockerfile .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG
 
-    - name: Deploy with Terraform
+    - name: Deploy ECS with Terraform
       env:
         TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
         TF_VAR_model_path: ${{ steps.set-model-path.outputs.MODEL_PATH }}
@@ -86,10 +89,13 @@ jobs:
         terraform init -reconfigure
         terraform apply -auto-approve
 
-    - name: Verify deployment
+    - name: Verify ECS deployment
       run: |
-        echo "Deployment completed successfully!"
+        echo "🎉 ECS Deployment completed successfully!"
         echo "Environment: ${{ github.event.inputs.environment }}"
         echo "Pipeline ID: ${{ github.event.inputs.pipeline_id }}"
         echo "Model Path: ${{ steps.set-model-path.outputs.MODEL_PATH }}"
         echo "Image URI: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}"
+        echo ""
+        echo "🔗 ECS Service deployed with Application Load Balancer"
+        echo "📊 Check AWS ECS Console for service status and logs"

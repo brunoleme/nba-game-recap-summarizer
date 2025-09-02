@@ -80,6 +80,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             "HF_TOKEN": hf_token,
             "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",  # Optimize CUDA memory allocation
         },
     )
 
