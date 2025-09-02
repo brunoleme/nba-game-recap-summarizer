@@ -112,6 +112,8 @@ PREPROCESSING_INSTANCE_TYPE ?= ml.g4dn.xlarge
 TRAINING_INSTANCE_TYPE ?= ml.g4dn.xlarge
 EVALUATION_INSTANCE_TYPE ?= ml.g4dn.xlarge
 DEPLOYMENT_INSTANCE_TYPE ?= ml.g4dn.xlarge
+PROJECT_CONFIG ?= config.$(ENV)
+INFERENCE_IMAGE_TAG ?= not-used
 
 sagemaker-pipeline-trigger:
 	@echo "Running SageMaker trigger..."
