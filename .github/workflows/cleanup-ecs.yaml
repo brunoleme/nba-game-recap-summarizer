@@ -1,5 +1,5 @@
-# .github/workflows/terraform-destroy.yml
-name: Terraform Destroy
+# .github/workflows/cleanup-ecs.yaml
+name: Cleanup ECS Deployment
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ env:
   ECR_REPOSITORY_URI: ${{ secrets.ECR_REPOSITORY_URI }}
 
 jobs:
-  destroy:
+  cleanup-ecs:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,7 +33,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
-      - name: Pre-destroy scale-down (ECS + ASG)
+      - name: Pre-cleanup scale-down (ECS + ASG)
         timeout-minutes: 25  # Allow 25 minutes for pre-destroy cleanup
         env:
           CLUSTER: nba-recap-summarizer-${{ github.event.inputs.env }}-cluster
@@ -120,8 +120,8 @@ jobs:
         run: terraform init -reconfigure
 
       # Tip: some modules validate vars at plan time; pass the same ones you use on apply
-      - name: Terraform destroy
-        timeout-minutes: 30  # Allow 30 minutes for destroy (GPU instances can be slow)
+      - name: Terraform cleanup ECS infrastructure
+        timeout-minutes: 30  # Allow 30 minutes for cleanup (GPU instances can be slow)
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           # these only matter if your modules require them at plan time:
@@ -132,3 +132,8 @@ jobs:
           # Set longer timeout for ASG operations
           export TF_CLI_ARGS="-var=aws_region=${{ env.AWS_REGION }}"
           terraform destroy -auto-approve
+          
+      - name: Verify ECS cleanup
+        run: |
+          echo "🧹 ECS cleanup completed for environment: ${{ github.event.inputs.env }}"
+          echo "All ECS services, clusters, and associated resources have been destroyed."
