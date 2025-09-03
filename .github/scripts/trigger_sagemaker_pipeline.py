@@ -58,7 +58,7 @@ def main():
             "DeploymentInstanceType": args.deployment_instance_type
         }
     )
-    execution.wait(delay=60, max_attempts=240)
+    execution.wait(delay=60, max_attempts=480)  # 8 hours total wait time
 
 if __name__ == "__main__":
     try:
