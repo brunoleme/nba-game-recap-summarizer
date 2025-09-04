@@ -4,6 +4,10 @@
 apt-get update -y
 apt-get upgrade -y
 
+# Clean up package cache to free space
+apt-get clean
+apt-get autoremove -y
+
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
@@ -17,6 +21,13 @@ unzip awscliv2.zip
 # Install Docker Compose
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
+
+# Configure Docker to use more space and clean up unused images
+echo '{"storage-driver": "overlay2", "storage-opts": ["overlay2.override_kernel_check=true"]}' > /etc/docker/daemon.json
+systemctl restart docker
+
+# Clean up any existing Docker images to free space
+docker system prune -af --volumes
 
 # Configure AWS CLI for ECR
 aws ecr get-login-password --region ${aws_region} | docker login --username AWS --password-stdin ${ecr_repository_uri%/*}

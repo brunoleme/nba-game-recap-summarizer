@@ -1,7 +1,5 @@
 #Dockerfile.inference
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel
-
-WORKDIR /app
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel as builder
 
 # Install uv and awscli
 RUN pip install --upgrade pip && \
@@ -13,21 +11,23 @@ COPY . .
 # Install project dependencies in editable mode
 RUN uv pip install --system -e .
 
-# Set environment variable for Python module resolution
-ENV PYTHONPATH=/app
+# Final stage
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+
+WORKDIR /app
+
+# Copy installed packages from builder
+COPY --from=builder /opt/conda/lib/python3.10/site-packages /opt/conda/lib/python3.10/site-packages
+COPY --from=builder /opt/conda/bin /opt/conda/bin
+
+# Copy application code
+COPY --from=builder /app /app
 
 # Create model directory
 RUN mkdir -p /app/models
 
-# Download model during build time if MODEL_PATH is provided
-ARG MODEL_PATH
-RUN if [ -n "$MODEL_PATH" ]; then \
-        echo "Downloading model from: $MODEL_PATH" && \
-        aws s3 cp "$MODEL_PATH" /app/models/model.ckpt && \
-        echo "Model downloaded successfully"; \
-    else \
-        echo "No MODEL_PATH provided, skipping model download"; \
-    fi
+# Set environment variable for Python module resolution
+ENV PYTHONPATH=/app
 
 # Expose port
 EXPOSE 8000

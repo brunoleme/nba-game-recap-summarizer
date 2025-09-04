@@ -73,8 +73,7 @@ jobs:
       run: |
         # Build and push the inference image
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG \
-          --build-arg MODEL_PATH="$MODEL_PATH" \
-          -f docker/inference.Dockerfile .
+          -f Dockerfile.inference .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG
 
     - name: Deploy ECS with Terraform
