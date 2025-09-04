@@ -99,6 +99,21 @@ EOF
 systemctl enable nba-inference.service
 systemctl start nba-inference.service
 
+# Wait a bit for the service to start
+sleep 30
+
+# Check service status
+echo "Checking service status..."
+systemctl status nba-inference.service --no-pager
+
+# Check Docker containers
+echo "Checking Docker containers..."
+docker ps -a
+
+# Check Docker logs
+echo "Checking Docker logs..."
+docker logs nba-inference 2>&1 | tail -50 || echo "No logs available yet"
+
 # Create a simple health check script
 cat > /opt/inference/health_check.sh << 'EOF'
 #!/bin/bash
