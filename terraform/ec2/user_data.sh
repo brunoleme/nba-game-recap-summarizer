@@ -30,7 +30,7 @@ systemctl restart docker
 docker system prune -af --volumes
 
 # Configure AWS CLI for ECR
-aws ecr get-login-password --region ${aws_region} | docker login --username AWS --password-stdin ${ecr_repository_uri%/*}
+aws ecr get-login-password --region ${aws_region} | docker login --username AWS --password-stdin ${ecr_registry}
 
 # Create application directory
 mkdir -p /opt/inference
