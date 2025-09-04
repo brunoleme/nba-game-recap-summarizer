@@ -182,6 +182,7 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 locals {
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
     ecr_repository_uri = var.inference_image_uri
+    ecr_registry       = "${split("/", var.inference_image_uri)[0]}"
     model_path         = var.model_path
     environment        = var.environment
     aws_region         = var.aws_region
