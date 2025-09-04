@@ -66,6 +66,14 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
+    - name: Clean up Docker space
+      run: |
+        echo "Cleaning up Docker to free space..."
+        docker system prune -af --volumes || true
+        docker builder prune -af || true
+        echo "Available disk space:"
+        df -h
+
     - name: Construct model path from pipeline ID
       id: set-model-path
       run: |
@@ -83,9 +91,18 @@ jobs:
         MODEL_PATH: ${{ steps.set-model-path.outputs.MODEL_PATH }}
       run: |
         SHORT_SHA="${GITHUB_SHA::7}"
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA \
-          --build-arg MODEL_PATH="$MODEL_PATH" \
-          -f Dockerfile.inference .
+        echo "Building Docker image with tag: $SHORT_SHA"
+        echo "Model path: $MODEL_PATH"
+        
+        # Build with more conservative settings to avoid disk space issues
+        docker build --no-cache -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA \
+          -f Dockerfile.inference . || {
+          echo "Docker build failed, trying with reduced parallelism..."
+          docker build --no-cache --memory=4g -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA \
+            -f Dockerfile.inference .
+        }
+        
+        echo "Pushing image to ECR..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA
         echo "IMAGE_TAG=$SHORT_SHA" >> $GITHUB_OUTPUT
 
