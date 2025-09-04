@@ -36,6 +36,11 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
     - name: Confirm destruction
       run: |
         if [ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY" ]; then
@@ -45,6 +50,13 @@ jobs:
         echo "✅ Confirmation received. Proceeding with cleanup..."
 
     - name: Destroy EC2 infrastructure
+      env:
+        TF_VAR_aws_region: ${{ env.AWS_REGION }}
+        TF_VAR_environment: ${{ github.event.inputs.environment }}
+        TF_VAR_inference_image_uri: "dummy-image"  # Not used for destroy
+        TF_VAR_model_path: "dummy-path"  # Not used for destroy
+        TF_VAR_instance_type: "g4dn.xlarge"  # Not used for destroy
+        TF_VAR_ssh_key_name: "dummy-key"  # Not used for destroy
       run: |
         cd terraform/ec2
         terraform init -reconfigure
