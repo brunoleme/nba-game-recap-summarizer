@@ -27,7 +27,7 @@ training:
   gradient_clip_val: 1.0
   max_epochs: 5
   num_workers: 4  # Increased for faster data loading
-  model_artifact_dir: "/opt/ml/processing/output/model-artifacts-dev"
+  model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   precision: "16-mixed"
   gradient_checkpointing: true
