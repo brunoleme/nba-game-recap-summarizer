@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.1"
+    }
   }
   
   backend "s3" {
@@ -17,6 +21,11 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+}
+
+# Random ID for unique resource naming
+resource "random_id" "suffix" {
+  byte_length = 4
 }
 
 # Data sources
@@ -123,7 +132,7 @@ resource "aws_security_group" "ec2_sg" {
 
 # IAM Role for EC2
 resource "aws_iam_role" "ec2_role" {
-  name = "${var.environment}-ec2-role"
+  name = "${var.environment}-ec2-role-${random_id.suffix.hex}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -140,7 +149,7 @@ resource "aws_iam_role" "ec2_role" {
 }
 
 resource "aws_iam_role_policy" "ec2_policy" {
-  name = "${var.environment}-ec2-policy"
+  name = "${var.environment}-ec2-policy-${random_id.suffix.hex}"
   role = aws_iam_role.ec2_role.id
 
   policy = jsonencode({
@@ -182,7 +191,7 @@ resource "aws_iam_role_policy" "ec2_policy" {
 }
 
 resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "${var.environment}-ec2-profile"
+  name = "${var.environment}-ec2-profile-${random_id.suffix.hex}"
   role = aws_iam_role.ec2_role.name
 }
 
