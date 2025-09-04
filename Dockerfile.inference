@@ -1,5 +1,7 @@
 #Dockerfile.inference
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel as builder
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+
+WORKDIR /app
 
 # Install uv and awscli
 RUN pip install --upgrade pip && \
@@ -10,18 +12,6 @@ COPY . .
 
 # Install project dependencies in editable mode
 RUN uv pip install --system -e .
-
-# Final stage
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
-
-WORKDIR /app
-
-# Copy installed packages from builder
-COPY --from=builder /opt/conda/lib/python3.10/site-packages /opt/conda/lib/python3.10/site-packages
-COPY --from=builder /opt/conda/bin /opt/conda/bin
-
-# Copy application code
-COPY --from=builder /app /app
 
 # Create model directory
 RUN mkdir -p /app/models
