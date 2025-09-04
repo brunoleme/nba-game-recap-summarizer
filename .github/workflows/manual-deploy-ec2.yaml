@@ -71,8 +71,13 @@ jobs:
         echo "Cleaning up Docker to free space..."
         docker system prune -af --volumes || true
         docker builder prune -af || true
+        docker image prune -af || true
+        docker container prune -af || true
+        docker network prune -f || true
         echo "Available disk space:"
         df -h
+        echo "Docker system info:"
+        docker system df
 
     - name: Construct model path from pipeline ID
       id: set-model-path
@@ -104,6 +109,12 @@ jobs:
         
         echo "Pushing image to ECR..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA
+        
+        # Clean up local image to free space
+        echo "Cleaning up local Docker image..."
+        docker rmi $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA || true
+        docker system prune -f || true
+        
         echo "IMAGE_TAG=$SHORT_SHA" >> $GITHUB_OUTPUT
 
     - name: Deploy EC2 with Terraform
