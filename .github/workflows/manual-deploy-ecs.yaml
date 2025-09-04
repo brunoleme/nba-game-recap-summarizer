@@ -21,8 +21,8 @@ on:
         type: string
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY_URI: 339713123413.dkr.ecr.us-east-1.amazonaws.com/nba-recap-summarizer
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY_URI: ${{ secrets.ECR_REPOSITORY_URI }}
 
 jobs:
   build-and-deploy:
@@ -72,9 +72,9 @@ jobs:
         MODEL_PATH: ${{ steps.set-model-path.outputs.MODEL_PATH }}
       run: |
         # Build and push the inference image
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG \
+        docker build -t $ECR_REPOSITORY_URI:$IMAGE_TAG \
           -f Dockerfile.inference .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$IMAGE_TAG
+        docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
 
     - name: Deploy ECS with Terraform
       env:

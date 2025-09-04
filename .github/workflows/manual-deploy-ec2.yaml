@@ -31,8 +31,8 @@ on:
           - g5.xlarge
           - g5.2xlarge
 env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY_URI: 339713123413.dkr.ecr.us-east-1.amazonaws.com/nba-recap-summarizer
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY_URI: ${{ secrets.ECR_REPOSITORY_URI }}
   EC2_SSH_KEY_NAME: ${{ secrets.EC2_SSH_KEY_NAME }}
 
 jobs:
