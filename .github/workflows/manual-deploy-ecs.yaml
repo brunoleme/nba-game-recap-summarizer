@@ -76,6 +76,11 @@ jobs:
           -f Dockerfile.inference .
         docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
 
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
     - name: Deploy ECS with Terraform
       env:
         TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
