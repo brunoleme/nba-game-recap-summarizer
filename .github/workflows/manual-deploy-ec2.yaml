@@ -30,14 +30,10 @@ on:
           - g4dn.4xlarge
           - g5.xlarge
           - g5.2xlarge
-      ssh_key_name:
-        description: 'SSH key pair name for EC2 access'
-        required: true
-        type: string
-
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY_URI: 339713123413.dkr.ecr.us-east-1.amazonaws.com/nba-recap-summarizer
+  EC2_SSH_KEY_NAME: ${{ secrets.EC2_SSH_KEY_NAME }}
 
 jobs:
   build-and-deploy-ec2:
@@ -99,7 +95,7 @@ jobs:
         TF_VAR_model_path: ${{ steps.set-model-path.outputs.MODEL_PATH }}
         TF_VAR_aws_region: ${{ env.AWS_REGION }}
         TF_VAR_instance_type: ${{ github.event.inputs.instance_type }}
-        TF_VAR_ssh_key_name: ${{ github.event.inputs.ssh_key_name }}
+        TF_VAR_ssh_key_name: ${{ env.EC2_SSH_KEY_NAME }}
         TF_VAR_environment: ${{ github.event.inputs.environment }}
       run: |
         cd terraform/ec2
