@@ -72,3 +72,10 @@ htmlcov/
 
 # MyPy
 .mypy_cache/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
