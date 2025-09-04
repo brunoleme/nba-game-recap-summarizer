@@ -100,19 +100,19 @@ jobs:
         echo "Model path: $MODEL_PATH"
         
         # Build with more conservative settings to avoid disk space issues
-        docker build --no-cache -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA \
+        docker build --no-cache -t $ECR_REPOSITORY_URI:$SHORT_SHA \
           -f Dockerfile.inference . || {
           echo "Docker build failed, trying with reduced parallelism..."
-          docker build --no-cache --memory=4g -t $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA \
+          docker build --no-cache --memory=4g -t $ECR_REPOSITORY_URI:$SHORT_SHA \
             -f Dockerfile.inference .
         }
         
         echo "Pushing image to ECR..."
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA
+        docker push $ECR_REPOSITORY_URI:$SHORT_SHA
         
         # Clean up local image to free space
         echo "Cleaning up local Docker image..."
-        docker rmi $ECR_REGISTRY/$ECR_REPOSITORY_URI:$SHORT_SHA || true
+        docker rmi $ECR_REPOSITORY_URI:$SHORT_SHA || true
         docker system prune -f || true
         
         echo "IMAGE_TAG=$SHORT_SHA" >> $GITHUB_OUTPUT
