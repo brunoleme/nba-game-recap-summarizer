@@ -79,3 +79,8 @@ htmlcov/
 *.tfstate
 *.tfstate.*
 .terraform.tfstate.lock.info
+
+# Debug files - don't commit
+tests/resources/artifacts/staging/
+*.ckpt
+wandb_export_*.csv
