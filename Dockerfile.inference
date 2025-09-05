@@ -10,6 +10,12 @@ RUN pip install --upgrade pip && \
 # Copy project files
 COPY . .
 
+# Install specific versions to avoid compatibility issues
+RUN pip install --no-cache-dir \
+    peft==0.11.1 \
+    bitsandbytes==0.42.0 \
+    transformers==4.55.2
+
 # Install project dependencies in editable mode
 RUN uv pip install --system -e .
 
