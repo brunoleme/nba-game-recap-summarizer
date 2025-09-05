@@ -36,11 +36,11 @@ training:
   log_every_n_steps: 50
 
 data:
-  train_samples: 3000  # 94% of full dataset for production
-  val_samples: 750     # 94% of full dataset for production
-  test_samples: 750    # 94% of full dataset for production
+  train_samples: 3000
+  val_samples: 750
+  test_samples: 750
   shuffle: false        # Whether to shuffle datasets
-  shuffle_seed: 42      # Random seed for reproducibility
+  shuffle_seed: 42
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
@@ -53,7 +53,7 @@ data:
 evaluation:
   model_artifact_dir: "/opt/ml/processing/input/model-artifacts"
   reports_dir: "/opt/ml/processing/output/reports-prod"
-  test_samples_lexical_metrics: 10000
-  test_samples_semantic_metrics: 1000
+  test_samples_lexical_metrics: 750
+  test_samples_semantic_metrics: 512
   test_samples_ai_as_judge_metrics: 256
   
