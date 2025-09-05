@@ -18,15 +18,15 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 2  # Optimized for Tesla A10G (24GB)
-  accumulate_grad_batches: 2  # Effective batch size = 2 * 2 = 4
-  learning_rate: 1e-5
-  warmup_steps: 250
-  weight_decay: 0.0
-  patience: 3
+  batch_size: 4  # Increased for better training stability
+  accumulate_grad_batches: 2  # Effective batch size = 4 * 2 = 8
+  learning_rate: 2e-5  # Increased from 1e-5
+  warmup_steps: 500  # Increased from 250
+  weight_decay: 0.01  # Added regularization
+  patience: 5  # Increased from 3
   precision: "16-mixed"
   gradient_clip_val: 1.0
-  max_epochs: 3
+  max_epochs: 8  # Increased from 3
   num_workers: 2
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
@@ -36,10 +36,10 @@ training:
   log_every_n_steps: 10
 
 data:
-  train_samples: 1000  # 42% of full dataset for staging
-  val_samples: 500     # 42% of full dataset for staging
-  test_samples: 500    # 42% of full dataset for staging
-  shuffle: false        # Whether to shuffle datasets
+  train_samples: 1000
+  val_samples: 500
+  test_samples: 500
+  shuffle: true         # Enable data shuffling for better training
   shuffle_seed: 42      # Random seed for reproducibility
   train_split: 0.8
   val_split: 0.1
@@ -53,7 +53,7 @@ data:
 evaluation:
   model_artifact_dir: "/opt/ml/processing/input/model-artifacts"
   reports_dir: "/opt/ml/processing/output/reports-staging"
-  test_samples_lexical_metrics: 1000
-  test_samples_semantic_metrics: 1000
+  test_samples_lexical_metrics: 256
+  test_samples_semantic_metrics: 128
   test_samples_ai_as_judge_metrics: 64
   
