@@ -57,6 +57,7 @@ jobs:
         TF_VAR_model_path: "dummy-path"  # Not used for destroy
         TF_VAR_instance_type: "g4dn.xlarge"  # Not used for destroy
         TF_VAR_ssh_key_name: "dummy-key"  # Not used for destroy
+        TF_VAR_hf_token: "dummy-token"  # Not used for destroy
       run: |
         cd terraform/ec2
         terraform init -reconfigure
