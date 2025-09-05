@@ -111,7 +111,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
 
         # Use plain delimiters to avoid changing tokenizer vocab
         prompt = (
-            "You are a NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
+            "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
             "### NBA Game Recap ###\n"
             f"{game_recap}\n\n"
             "### Recap Summary ###\n"
