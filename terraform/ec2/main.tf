@@ -203,6 +203,7 @@ locals {
     model_path         = var.model_path
     environment        = var.environment
     aws_region         = var.aws_region
+    hf_token           = var.hf_token
   }))
 }
 

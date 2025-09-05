@@ -22,9 +22,37 @@ unzip awscliv2.zip
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
-# Configure Docker to use more space and clean up unused images
-echo '{"storage-driver": "overlay2", "storage-opts": ["overlay2.override_kernel_check=true"]}' > /etc/docker/daemon.json
+# Configure Docker daemon for better resource management
+cat > /etc/docker/daemon.json << EOF
+{
+  "storage-driver": "overlay2",
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+# Restart Docker daemon with proper configuration
 systemctl restart docker
+
+# Wait for Docker to be ready
+echo "Waiting for Docker daemon to be ready..."
+for i in {1..30}; do
+  if docker ps > /dev/null 2>&1; then
+    echo "Docker daemon is ready!"
+    break
+  fi
+  echo "Attempt $i/30: Docker not ready yet, waiting 2 seconds..."
+  sleep 2
+done
+
+# Verify Docker is working
+if ! docker ps > /dev/null 2>&1; then
+  echo "ERROR: Docker daemon failed to start properly"
+  exit 1
+fi
 
 # Clean up any existing Docker images to free space
 docker system prune -af --volumes
@@ -41,6 +69,8 @@ cat > .env << EOF
 ENV=${environment}
 MODEL_PATH=${model_path}
 AWS_REGION=${aws_region}
+HF_TOKEN=${hf_token}
+HUGGINGFACEHUB_API_TOKEN=${hf_token}
 EOF
 
 # Create Docker Compose file
@@ -55,6 +85,8 @@ services:
     environment:
       - ENV=${environment}
       - MODEL_PATH=${model_path}
+      - HF_TOKEN=${hf_token}
+      - HUGGINGFACEHUB_API_TOKEN=${hf_token}
     restart: unless-stopped
     deploy:
       resources:
@@ -97,7 +129,18 @@ EOF
 
 # Enable and start the service
 systemctl enable nba-inference.service
-systemctl start nba-inference.service
+
+# Start the service with error handling
+echo "Starting NBA inference service..."
+if ! systemctl start nba-inference.service; then
+  echo "ERROR: Failed to start nba-inference.service"
+  systemctl status nba-inference.service --no-pager
+  exit 1
+fi
+
+# Start the health check script in the background
+chmod +x /opt/inference/health_check.sh
+nohup /opt/inference/health_check.sh > /var/log/health_check.log 2>&1 &
 
 # Wait a bit for the service to start
 sleep 30
@@ -114,9 +157,90 @@ docker ps -a
 echo "Checking Docker logs..."
 docker logs nba-inference 2>&1 | tail -50 || echo "No logs available yet"
 
-# Create a simple health check script
+# Check if the container is running
+echo "Checking container status..."
+docker ps -a | grep nba-inference || echo "Container not found"
+
+# Check Docker Compose status
+echo "Checking Docker Compose status..."
+cd /opt/inference && docker-compose ps || echo "Docker Compose not running"
+
+# Check systemd service logs
+echo "Checking systemd service logs..."
+journalctl -u nba-inference.service --no-pager -n 20 || echo "No service logs available"
+
+# Create a comprehensive health check script
 cat > /opt/inference/health_check.sh << 'EOF'
 #!/bin/bash
+echo "Starting health check script..."
+
+# Function to check if port is open
+check_port() {
+    local port=$1
+    if netstat -tln | grep ":$port " > /dev/null; then
+        echo "✅ Port $port is open"
+        return 0
+    else
+        echo "❌ Port $port is not open"
+        return 1
+    fi
+}
+
+# Function to check Docker container
+check_docker() {
+    if docker ps | grep nba-inference > /dev/null; then
+        echo "✅ Docker container is running"
+        return 0
+    else
+        echo "❌ Docker container is not running"
+        docker ps -a | grep nba-inference
+        return 1
+    fi
+}
+
+# Function to check service health
+check_service() {
+    local max_attempts=30
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo "Health check attempt $attempt/$max_attempts"
+        
+        # Check if Docker container is running
+        if ! check_docker; then
+            echo "Docker container not running, waiting..."
+            sleep 10
+            ((attempt++))
+            continue
+        fi
+        
+        # Check if port is open
+        if ! check_port 8000; then
+            echo "Port 8000 not open, waiting..."
+            sleep 10
+            ((attempt++))
+            continue
+        fi
+        
+        # Try to hit the health endpoint
+        if curl -f -s http://localhost:8000/health > /dev/null; then
+            echo "✅ Service is healthy!"
+            return 0
+        else
+            echo "Service not responding, waiting..."
+            sleep 10
+            ((attempt++))
+        fi
+    done
+    
+    echo "❌ Service failed to become healthy after $max_attempts attempts"
+    return 1
+}
+
+# Run the health check
+check_service
+
+# Keep the script running for monitoring
 while true; do
     if curl -f -s http://localhost:8000/health > /dev/null; then
         echo "$(date): Service is healthy"
