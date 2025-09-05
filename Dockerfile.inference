@@ -11,9 +11,10 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 # Install specific versions to avoid compatibility issues
+# Note: bitsandbytes >= 0.43.2 required for 4-bit quantization support
 RUN pip install --no-cache-dir \
     peft==0.11.1 \
-    bitsandbytes==0.42.0 \
+    bitsandbytes==0.43.2 \
     transformers==4.55.2
 
 # Install project dependencies in editable mode
