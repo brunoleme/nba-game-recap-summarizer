@@ -28,6 +28,9 @@ training:
   gradient_clip_val: 1.0
   max_epochs: 8  # Increased from 3
   num_workers: 2
+  # ROUGE evaluation settings
+  rouge_eval_frequency: 10  # Calculate ROUGE every 10 validation batches
+  rouge_eval_samples: 1     # Number of samples to evaluate for ROUGE
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true
