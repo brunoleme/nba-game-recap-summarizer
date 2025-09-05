@@ -130,6 +130,7 @@ jobs:
         TF_VAR_instance_type: ${{ github.event.inputs.instance_type }}
         TF_VAR_ssh_key_name: ${{ env.EC2_SSH_KEY_NAME }}
         TF_VAR_environment: ${{ github.event.inputs.environment }}
+        TF_VAR_hf_token: ${{ secrets.HF_TOKEN }}
       run: |
         cd terraform/ec2
         terraform init -reconfigure
@@ -149,13 +150,13 @@ jobs:
         INSTANCE_IP="${{ steps.get-instance.outputs.INSTANCE_IP }}"
         echo "Waiting for service to be ready on $INSTANCE_IP:8000..."
         
-        # Wait up to 15 minutes for the service to be ready (model download can take time)
-        for i in {1..90}; do
+        # Wait up to 20 minutes for the service to be ready (model download can take time)
+        for i in {1..120}; do
           if curl -f -s "http://$INSTANCE_IP:8000/health" > /dev/null; then
             echo "Service is ready!"
             break
           fi
-          echo "Attempt $i/90: Service not ready yet, waiting 10 seconds..."
+          echo "Attempt $i/120: Service not ready yet, waiting 10 seconds..."
           sleep 10
         done
 

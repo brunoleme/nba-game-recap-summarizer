@@ -29,3 +29,9 @@ variable "model_path" {
   description = "S3 path to the model checkpoint"
   type        = string
 }
+
+variable "hf_token" {
+  description = "Hugging Face token for accessing gated models"
+  type        = string
+  sensitive   = true
+}
