@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 4096  # Full sequence length with Tesla A10G (24GB)
+  max_length: 2048  # Reduced for memory efficiency
 
 lora:
   r: 8
@@ -18,8 +18,8 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 4  # Increased for better training stability
-  accumulate_grad_batches: 2  # Effective batch size = 4 * 2 = 8
+  batch_size: 2  # Reduced for memory efficiency
+  accumulate_grad_batches: 4  # Effective batch size = 2 * 4 = 8
   learning_rate: 2e-5  # Increased from 1e-5
   warmup_steps: 500  # Increased from 250
   weight_decay: 0.01  # Added regularization
