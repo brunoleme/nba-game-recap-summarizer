@@ -32,6 +32,10 @@ def init_grader(prompt_template) -> Callable:
     return prompt_template | llm
 
 def evaluate_with_grader(grader, format_fn, *data_streams):
+    # Return 0 if grader is None (no API key available)
+    if grader is None:
+        return 0.0
+    
     grades = []
     for args in zip(*data_streams):
         prompt_input = format_fn(*args)
@@ -69,15 +73,45 @@ def calculate_bertscore(predictions, references, _):
         return 0
 
 # --- LLM-as-a-Judge metrics ---
-RELEVANCE_GRADER = init_grader(relevance_prompt)
-FACTUAL_GRADER = init_grader(factual_consistency_prompt)
-COMPLETENESS_GRADER = init_grader(completeness_prompt)
-CLARITY_GRADER = init_grader(clarity_prompt)
-CONCISENESS_GRADER = init_grader(conciseness_prompt)
+# Initialize graders lazily to avoid API key issues during import
+RELEVANCE_GRADER = None
+FACTUAL_GRADER = None
+COMPLETENESS_GRADER = None
+CLARITY_GRADER = None
+CONCISENESS_GRADER = None
+
+def _get_grader(grader_name):
+    """Get or initialize a grader lazily."""
+    global RELEVANCE_GRADER, FACTUAL_GRADER, COMPLETENESS_GRADER, CLARITY_GRADER, CONCISENESS_GRADER
+    
+    # Check if API key is available before initializing
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        # Return a mock grader for testing
+        return None
+    
+    if grader_name == "relevance" and RELEVANCE_GRADER is None:
+        RELEVANCE_GRADER = init_grader(relevance_prompt)
+    elif grader_name == "factual" and FACTUAL_GRADER is None:
+        FACTUAL_GRADER = init_grader(factual_consistency_prompt)
+    elif grader_name == "completeness" and COMPLETENESS_GRADER is None:
+        COMPLETENESS_GRADER = init_grader(completeness_prompt)
+    elif grader_name == "clarity" and CLARITY_GRADER is None:
+        CLARITY_GRADER = init_grader(clarity_prompt)
+    elif grader_name == "conciseness" and CONCISENESS_GRADER is None:
+        CONCISENESS_GRADER = init_grader(conciseness_prompt)
+    
+    return {
+        "relevance": RELEVANCE_GRADER,
+        "factual": FACTUAL_GRADER,
+        "completeness": COMPLETENESS_GRADER,
+        "clarity": CLARITY_GRADER,
+        "conciseness": CONCISENESS_GRADER
+    }[grader_name]
 
 def calculate_relevance(predictions, references, instructions):
     return evaluate_with_grader(
-        RELEVANCE_GRADER,
+        _get_grader("relevance"),
         lambda pred, ref, instr: {
             "instruction": instr,
             "ground_truth_recap_summary": ref,
@@ -88,7 +122,7 @@ def calculate_relevance(predictions, references, instructions):
 
 def calculate_factual_consistency(predictions, _, instructions):
     return evaluate_with_grader(
-        FACTUAL_GRADER,
+        _get_grader("factual"),
         lambda pred, instr: {
             "instruction": instr,
             "generated_recap_summary": pred,
@@ -98,7 +132,7 @@ def calculate_factual_consistency(predictions, _, instructions):
 
 def calculate_completeness(predictions, _, instructions):
     return evaluate_with_grader(
-        COMPLETENESS_GRADER,
+        _get_grader("completeness"),
         lambda pred, instr: {
             "instruction": instr,
             "generated_recap_summary": pred,
@@ -108,7 +142,7 @@ def calculate_completeness(predictions, _, instructions):
 
 def calculate_clarity(predictions, _, instructions):
     return evaluate_with_grader(
-        CLARITY_GRADER,
+        _get_grader("clarity"),
         lambda pred, instr: {
             "instruction": instr,
             "generated_recap_summary": pred,
@@ -118,7 +152,7 @@ def calculate_clarity(predictions, _, instructions):
 
 def calculate_conciseness(predictions, _, instructions):
     return evaluate_with_grader(
-        CONCISENESS_GRADER,
+        _get_grader("conciseness"),
         lambda pred, instr: {
             "instruction": instr,
             "generated_recap_summary": pred,
