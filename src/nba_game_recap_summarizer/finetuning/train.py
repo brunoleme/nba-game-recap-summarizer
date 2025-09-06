@@ -75,6 +75,7 @@ def train(cfg: DictConfig):
         warmup_steps=cfg.training.warmup_steps,
         weight_decay=cfg.training.weight_decay,
         use_quantization=cfg.model.quantization,
+        quantization_type=cfg.model.quantization_type,
         peft_method=cfg.model.peft_method,
     )
 
