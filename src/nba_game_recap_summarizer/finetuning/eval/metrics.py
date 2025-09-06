@@ -49,7 +49,10 @@ def evaluate_with_grader(grader, format_fn, *data_streams):
 def calculate_rouge(predictions, references, _):
     try:
         scores = rouge_metric.compute(predictions=predictions, references=references)
-        return sum(scores.values()) / len(scores)
+        # Use ROUGE-1 and ROUGE-2 F1 scores (more reliable than ROUGE-L)
+        rouge_1_f1 = scores['rouge1']
+        rouge_2_f1 = scores['rouge2']
+        return (rouge_1_f1 + rouge_2_f1) / 2.0
     except Exception:
         return 0
 
