@@ -20,7 +20,11 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         # IMPORTANT: pass model_type="llama" (or "decoder-only") so Base can set flags/PEFT correctly
         if "model_type" not in kwargs:
             kwargs["model_type"] = "llama"
-        super().__init__(model_name=model_name, **kwargs)
+        
+        super().__init__(
+            model_name=model_name,
+            **kwargs
+        )
 
         if model is not None and tokenizer is not None:
             self.model = model
