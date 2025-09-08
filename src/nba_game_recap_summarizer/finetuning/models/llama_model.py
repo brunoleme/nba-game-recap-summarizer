@@ -286,13 +286,34 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Load checkpoint directly from S3 or local path
-            checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
-
-            # The checkpoint is already fully loaded with model, tokenizer, and state
-            # Just return it directly instead of creating a new instance
+            # Load the checkpoint to get hyperparameters
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            hparams = checkpoint.get("hyper_parameters", {})
+            
+            logger.info(f"Checkpoint hyperparameters: {hparams}")
+            
+            # Extract the key parameters that were used during training
+            use_quantization = hparams.get("use_quantization", True)
+            quantization_type = hparams.get("quantization_type", "8bit")
+            peft_method_from_checkpoint = hparams.get("peft_method", None)
+            model_name_from_checkpoint = hparams.get("model_name", model_name or "meta-llama/Llama-3.2-1B-Instruct")
+            
+            logger.info(f"Using checkpoint parameters - quantization: {use_quantization}, type: {quantization_type}, peft: {peft_method_from_checkpoint}")
+            
+            # Create model with the same parameters as training
+            model = LlamaRecapSummarizationModel(
+                model_name=model_name_from_checkpoint,
+                model_type=model_type or "llama",
+                use_quantization=use_quantization,
+                quantization_type=quantization_type,
+                peft_method=peft_method_from_checkpoint,
+            )
+            
+            # Load the state dict with strict=False to ignore quantization metadata
+            model.load_state_dict(checkpoint["state_dict"], strict=False)
+            
             logger.success("Model restored successfully from checkpoint")
-            return checkpoint
+            return model
 
         except Exception as e:
             logger.error(f"Failed to restore model: {str(e)}")
