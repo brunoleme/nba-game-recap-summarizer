@@ -111,14 +111,46 @@ def test_model_is_loaded(default_llama_model):
 
 def test_load_model_from_checkpoint():
     """Test loading model from checkpoint (S3 or local)."""
-    with patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel.load_from_checkpoint') as mock_load:
+    with patch('nba_game_recap_summarizer.finetuning.models.llama_model.torch.load') as mock_torch_load, \
+         patch('nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel') as mock_model_class:
+        
+        # Mock the torch.load to return a checkpoint with hyperparameters
+        mock_checkpoint = {
+            'hyper_parameters': {
+                'model_name': 'meta-llama/Llama-3.2-1B-Instruct',
+                'model_type': 'llama',
+                'use_quantization': True,
+                'quantization_type': '4bit',
+                'peft_method': 'lora'
+            },
+            'state_dict': {
+                'model.base_model.model.model.layers.0.self_attn.q_proj.weight': 'mock_weight',
+                'model.base_model.model.model.layers.0.self_attn.k_proj.weight': 'mock_weight'
+            }
+        }
+        mock_torch_load.return_value = mock_checkpoint
+        
+        # Mock the model instance
         mock_model = MagicMock()
         mock_model.is_loaded.return_value = True
-        mock_load.return_value = mock_model
+        mock_model_class.return_value = mock_model
         
         local_path = "/local/path/model.ckpt"
         result = LlamaRecapSummarizationModel.load_model_from_checkpoint(local_path)
         
-        # Should call load_from_checkpoint with the same path
-        mock_load.assert_called_once_with(local_path)
+        # Should call torch.load first to get hyperparameters
+        mock_torch_load.assert_called_once_with(local_path, map_location="cpu")
+        
+        # Should create a new model instance with the extracted parameters
+        mock_model_class.assert_called_once_with(
+            model_name='meta-llama/Llama-3.2-1B-Instruct',
+            model_type='llama',
+            use_quantization=True,
+            quantization_type='4bit',
+            peft_method='lora'
+        )
+        
+        # Should load the state dict
+        mock_model.load_state_dict.assert_called_once_with(mock_checkpoint['state_dict'], strict=False)
+        
         assert result == mock_model
