@@ -270,8 +270,8 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
                 predictions, references = self._generate_predictions_for_eval(batch)
                 if predictions and references:
                     rouge_score = self._calculate_rouge_score(predictions, references)
-                    self.log("val_rouge_l", rouge_score, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
-                    logger.info(f"Validation ROUGE-L Score: {rouge_score:.4f}")
+                    self.log("val_rouge_1_2", rouge_score, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
+                    logger.info(f"Validation ROUGE-1/2 Score: {rouge_score:.4f}")
             except Exception as e:
                 logger.debug(f"ROUGE calculation failed for batch {batch_idx}: {e}")
         
@@ -327,7 +327,7 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             return [], []
 
     def _calculate_rouge_score(self, predictions, references):
-        """Calculate ROUGE-L score for predictions and references."""
+        """Calculate ROUGE-1 and ROUGE-2 scores for predictions and references."""
         try:
             from evaluate import load
             rouge_metric = load("rouge")
@@ -347,9 +347,15 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
                 use_aggregator=False
             )
             
-            # Return ROUGE-L F1 score (most relevant for summarization)
-            rouge_l_f1 = rouge_scores['rougeL'].mid.fmeasure
-            return float(rouge_l_f1) if rouge_l_f1 is not None else 0.0
+            # Calculate average of ROUGE-1 and ROUGE-2 F1 scores
+            rouge_1_f1 = rouge_scores['rouge1'].mid.fmeasure
+            rouge_2_f1 = rouge_scores['rouge2'].mid.fmeasure
+            
+            rouge_1_score = float(rouge_1_f1) if rouge_1_f1 is not None else 0.0
+            rouge_2_score = float(rouge_2_f1) if rouge_2_f1 is not None else 0.0
+            
+            # Return average of ROUGE-1 and ROUGE-2
+            return (rouge_1_score + rouge_2_score) / 2.0
             
         except Exception as e:
             logger.debug(f"Error calculating ROUGE score: {e}")
