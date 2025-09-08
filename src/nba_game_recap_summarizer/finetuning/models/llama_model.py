@@ -20,11 +20,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         # IMPORTANT: pass model_type="llama" (or "decoder-only") so Base can set flags/PEFT correctly
         if "model_type" not in kwargs:
             kwargs["model_type"] = "llama"
-        
-        super().__init__(
-            model_name=model_name,
-            **kwargs
-        )
+        super().__init__(model_name=model_name, **kwargs)
 
         if model is not None and tokenizer is not None:
             self.model = model
@@ -295,8 +291,34 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             return checkpoint
 
         except Exception as e:
-            logger.error(f"Failed to restore model: {str(e)}")
-            raise RuntimeError(f"Restore failed: {e}")
+            # If loading fails due to quantization metadata mismatch, try loading with strict=False
+            if "Unexpected key(s) in state_dict" in str(e) and "absmax" in str(e):
+                logger.warning(f"Quantization metadata mismatch detected, attempting to load with strict=False: {str(e)}")
+                try:
+                    # Load the checkpoint manually to extract hyperparameters
+                    checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
+                    hparams = checkpoint_data.get("hyper_parameters", {})
+                    
+                    # Create model with same parameters as training
+                    model = LlamaRecapSummarizationModel(
+                        model_name=hparams.get("model_name", model_name or "meta-llama/Llama-3.2-1B-Instruct"),
+                        model_type=model_type or "llama",
+                        use_quantization=hparams.get("use_quantization", True),
+                        quantization_type=hparams.get("quantization_type", "4bit"),
+                        peft_method=hparams.get("peft_method", peft_method),
+                    )
+                    
+                    # Load state dict with strict=False to ignore quantization metadata
+                    model.load_state_dict(checkpoint_data["state_dict"], strict=False)
+                    logger.success("Model restored successfully from checkpoint with strict=False")
+                    return model
+                    
+                except Exception as e2:
+                    logger.error(f"Failed to restore model even with strict=False: {str(e2)}")
+                    raise RuntimeError(f"Restore failed: {e2}")
+            else:
+                logger.error(f"Failed to restore model: {str(e)}")
+                raise RuntimeError(f"Restore failed: {e}")
 
     def is_loaded(self) -> bool:
         """Check if the model is properly loaded and ready for inference."""
