@@ -57,8 +57,11 @@ class NBARecapDataPreprocessingModule():
         if initial_count != cleaned_count:
             logger.warning(f"Removed {initial_count - cleaned_count} rows with None values in game_recap or game_recap_summary")
         
+        # Apply data quality filtering
+        df = self._filter_low_quality_data(df)
+        
         self.dataset = Dataset.from_pandas(df)
-        logger.info(f"Loaded {len(self.dataset)} rows from S3.")
+        logger.info(f"Loaded {len(self.dataset)} rows from S3 after quality filtering.")
 
     def setup(self) -> None:
         logger.info(f"Setting up dataset...")
@@ -69,30 +72,35 @@ class NBARecapDataPreprocessingModule():
         logger.debug(f"Dataset columns: {full_dataset.column_names}")
 
         n = len(full_dataset)
-        assert abs(self.train_split + self.val_split + self.test_split - 1.0) < 1e-6, \
-            "Train/val/test splits must sum to 1.0"
-
-        train_end = int(n * self.train_split)
-        val_end = train_end + int(n * self.val_split)
-
-        self.train_dataset = full_dataset.select(range(0, train_end))
-        self.val_dataset = full_dataset.select(range(train_end, val_end))
-        self.test_dataset = full_dataset.select(range(val_end, n))
-
+        
+        # Use explicit sample counts instead of percentages
         if self.train_samples > 0:
-            self.train_dataset = self.train_dataset.select(
-                range(min(self.train_samples, len(self.train_dataset)))
-            )
-
+            train_size = min(self.train_samples, n)
+        else:
+            train_size = n
+            
         if self.val_samples > 0:
-            self.val_dataset =self.val_dataset.select(
-                range(min(self.val_samples, len(self.val_dataset)))
-            )
-
+            val_size = min(self.val_samples, n - train_size)
+        else:
+            val_size = max(0, n - train_size) // 2
+            
         if self.test_samples > 0:
-            self.test_dataset = self.test_dataset.select(
-                range(min(self.test_samples, len(self.test_dataset)))
-            )
+            test_size = min(self.test_samples, n - train_size - val_size)
+        else:
+            test_size = max(0, n - train_size - val_size)
+
+        # Ensure we don't exceed total dataset size
+        total_allocated = train_size + val_size + test_size
+        if total_allocated > n:
+            # Scale down proportionally
+            scale_factor = n / total_allocated
+            train_size = int(train_size * scale_factor)
+            val_size = int(val_size * scale_factor)
+            test_size = n - train_size - val_size
+
+        self.train_dataset = full_dataset.select(range(0, train_size))
+        self.val_dataset = full_dataset.select(range(train_size, train_size + val_size))
+        self.test_dataset = full_dataset.select(range(train_size + val_size, train_size + val_size + test_size))
 
         self._log_dataset_statistics(self.train_dataset, "train")
         self._log_dataset_statistics(self.val_dataset, "validation")
@@ -150,6 +158,98 @@ class NBARecapDataPreprocessingModule():
             except Exception as e:
                 print(f"Failed to delete {file_path}. Reason: {e}")
 
+
+    def _filter_low_quality_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter out low-quality data samples based on various criteria."""
+        initial_count = len(df)
+        logger.info(f"Starting data quality filtering with {initial_count} samples...")
+        
+        # Calculate text metrics
+        df['recap_length'] = df['game_recap'].str.len()
+        df['summary_length'] = df['game_recap_summary'].str.len()
+        df['recap_word_count'] = df['game_recap'].str.split().str.len()
+        df['summary_word_count'] = df['game_recap_summary'].str.split().str.len()
+        df['length_ratio'] = df['summary_length'] / df['recap_length']
+        
+        # Filter 1: Remove very short summaries (likely just scores)
+        short_summary_mask = df['summary_word_count'] < 10
+        short_summary_count = short_summary_mask.sum()
+        if short_summary_count > 0:
+            logger.warning(f"Removing {short_summary_count} samples with very short summaries (< 10 words)")
+            df = df[~short_summary_mask]
+        
+        # Filter 2: Remove very short recaps (likely corrupted data)
+        short_recap_mask = df['recap_word_count'] < 50
+        short_recap_count = short_recap_mask.sum()
+        if short_recap_count > 0:
+            logger.warning(f"Removing {short_recap_count} samples with very short recaps (< 50 words)")
+            df = df[~short_recap_mask]
+        
+        # Filter 3: Remove extreme length ratios (likely data corruption)
+        extreme_low_ratio_mask = df['length_ratio'] < 0.01  # Summary < 1% of recap length
+        extreme_high_ratio_mask = df['length_ratio'] > 0.5  # Summary > 50% of recap length
+        extreme_ratio_count = (extreme_low_ratio_mask | extreme_high_ratio_mask).sum()
+        if extreme_ratio_count > 0:
+            logger.warning(f"Removing {extreme_ratio_count} samples with extreme length ratios")
+            df = df[~(extreme_low_ratio_mask | extreme_high_ratio_mask)]
+        
+        # Filter 4: Remove samples with HTML tags (data corruption)
+        html_recap_mask = df['game_recap'].str.contains('<[^>]+>', regex=True, na=False)
+        html_summary_mask = df['game_recap_summary'].str.contains('<[^>]+>', regex=True, na=False)
+        html_count = (html_recap_mask | html_summary_mask).sum()
+        if html_count > 0:
+            logger.warning(f"Removing {html_count} samples with HTML tags")
+            df = df[~(html_recap_mask | html_summary_mask)]
+        
+        # Filter 5: Remove samples with corrupted recap content
+        corrupted_recap_mask = df['game_recap'].str.contains('\[No meaningful paragraphs found\]', regex=False, na=False)
+        corrupted_count = corrupted_recap_mask.sum()
+        if corrupted_count > 0:
+            logger.warning(f"Removing {corrupted_count} samples with corrupted recap content")
+            df = df[~corrupted_recap_mask]
+        
+        # Filter 6: Remove duplicate recaps (keep first occurrence)
+        duplicate_recap_mask = df.duplicated(subset=['game_recap'], keep='first')
+        duplicate_count = duplicate_recap_mask.sum()
+        if duplicate_count > 0:
+            logger.warning(f"Removing {duplicate_count} duplicate recaps")
+            df = df[~duplicate_recap_mask]
+        
+        # Filter 7: Remove samples where summary is just a score (pattern matching)
+        score_patterns = [
+            r'^\d+-\d+$',  # Just numbers like "73-104"
+            r'^\w+ - \d+\s*\n\w+ - \d+$',  # Team - Score format
+            r'^\w+ wins \d+-\d+',  # "Team wins 107-100"
+            r'^Score: \w+ \d+-\d+$',  # "Score: Team 93-85"
+        ]
+        
+        score_summary_mask = df['game_recap_summary'].str.match('|'.join(score_patterns), case=False, na=False)
+        score_count = score_summary_mask.sum()
+        if score_count > 0:
+            logger.warning(f"Removing {score_count} samples where summary is just a score")
+            df = df[~score_summary_mask]
+        
+        # Clean up temporary columns
+        df = df.drop(columns=['recap_length', 'summary_length', 'recap_word_count', 'summary_word_count', 'length_ratio'])
+        
+        final_count = len(df)
+        removed_count = initial_count - final_count
+        removal_percentage = (removed_count / initial_count) * 100
+        
+        logger.info(f"Data quality filtering complete:")
+        logger.info(f"  Initial samples: {initial_count}")
+        logger.info(f"  Removed samples: {removed_count} ({removal_percentage:.1f}%)")
+        logger.info(f"  Final samples: {final_count}")
+        
+        # Store filtering statistics for later use
+        self.filtering_stats = {
+            'initial_count': initial_count,
+            'removed_count': removed_count,
+            'final_count': final_count,
+            'removal_percentage': removal_percentage
+        }
+        
+        return df
 
     def run(self) -> None:
         self.clean_output_folder()
