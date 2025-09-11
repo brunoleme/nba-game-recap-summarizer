@@ -31,21 +31,32 @@ training:
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true  # Enabled to save memory
+  # Learning rate scheduling
+  lr_scheduler:
+    name: "linear_warmup"  # Options: linear_warmup, cosine, step
+    T_max: 3  # For cosine scheduler
+    eta_min: 1e-6  # For cosine scheduler
+    step_size: 2  # For step scheduler
+    gamma: 0.5  # For step scheduler
 
 data:
   train_samples: 20  # Use -1 for all training data
   val_samples: 10     # Use -1 for all validation data
   test_samples: 10    # Use -1 for all test data
-  shuffle: false        # Whether to shuffle datasets
+  shuffle: true        # Enable data shuffling for better training
   shuffle_seed: 42      # Random seed for reproducibility
-  train_split: 0.5
-  val_split: 0.25
-  test_split: 0.25
+  # Remove train_split, val_split, test_split - rely on train_samples, val_samples, test_samples
   shuffle_buffer_size: 5000
   source_data_folder: "/opt/ml/processing/input/source-data"
   source_data_path: "game_recaps_with_summaries.csv"
   preprocessed_output_data_folder: "/opt/ml/processing/output"
   preprocessed_input_data_folder: "/opt/ml/processing/input"
+  # Data quality filtering settings
+  apply_quality_filters: true
+  min_summary_length: 10
+  min_recap_length: 50
+  max_length_ratio: 0.8
+  min_length_ratio: 0.01
 
 evaluation:
   model_artifact_dir: "/opt/ml/processing/input/model-artifacts"
