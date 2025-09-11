@@ -25,6 +25,12 @@ class NBARecapDataPreprocessingModule():
         test_split: float = 0.1,
         shuffle: bool = True,
         shuffle_seed: int = 42,
+        # Data quality filtering parameters
+        apply_quality_filters: bool = False,
+        min_summary_length: int = 10,
+        min_recap_length: int = 50,
+        max_length_ratio: float = 0.8,
+        min_length_ratio: float = 0.01,
     ):
         self.model_name = model_name
         self.source_data_folder = source_data_folder
@@ -42,6 +48,12 @@ class NBARecapDataPreprocessingModule():
         self.test_split = test_split
         self.shuffle = shuffle
         self.shuffle_seed = shuffle_seed
+        # Data quality filtering parameters
+        self.apply_quality_filters = apply_quality_filters
+        self.min_summary_length = min_summary_length
+        self.min_recap_length = min_recap_length
+        self.max_length_ratio = max_length_ratio
+        self.min_length_ratio = min_length_ratio
 
 
     def load_data(self) -> None:
@@ -161,6 +173,10 @@ class NBARecapDataPreprocessingModule():
 
     def _filter_low_quality_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Filter out low-quality data samples based on various criteria."""
+        if not self.apply_quality_filters:
+            logger.info("Data quality filtering disabled, skipping...")
+            return df
+            
         initial_count = len(df)
         logger.info(f"Starting data quality filtering with {initial_count} samples...")
         
@@ -172,22 +188,22 @@ class NBARecapDataPreprocessingModule():
         df['length_ratio'] = df['summary_length'] / df['recap_length']
         
         # Filter 1: Remove very short summaries (likely just scores)
-        short_summary_mask = df['summary_word_count'] < 10
+        short_summary_mask = df['summary_word_count'] < self.min_summary_length
         short_summary_count = short_summary_mask.sum()
         if short_summary_count > 0:
-            logger.warning(f"Removing {short_summary_count} samples with very short summaries (< 10 words)")
+            logger.warning(f"Removing {short_summary_count} samples with very short summaries (< {self.min_summary_length} words)")
             df = df[~short_summary_mask]
         
         # Filter 2: Remove very short recaps (likely corrupted data)
-        short_recap_mask = df['recap_word_count'] < 50
+        short_recap_mask = df['recap_word_count'] < self.min_recap_length
         short_recap_count = short_recap_mask.sum()
         if short_recap_count > 0:
-            logger.warning(f"Removing {short_recap_count} samples with very short recaps (< 50 words)")
+            logger.warning(f"Removing {short_recap_count} samples with very short recaps (< {self.min_recap_length} words)")
             df = df[~short_recap_mask]
         
         # Filter 3: Remove extreme length ratios (likely data corruption)
-        extreme_low_ratio_mask = df['length_ratio'] < 0.01  # Summary < 1% of recap length
-        extreme_high_ratio_mask = df['length_ratio'] > 0.5  # Summary > 50% of recap length
+        extreme_low_ratio_mask = df['length_ratio'] < self.min_length_ratio
+        extreme_high_ratio_mask = df['length_ratio'] > self.max_length_ratio
         extreme_ratio_count = (extreme_low_ratio_mask | extreme_high_ratio_mask).sum()
         if extreme_ratio_count > 0:
             logger.warning(f"Removing {extreme_ratio_count} samples with extreme length ratios")
@@ -202,7 +218,7 @@ class NBARecapDataPreprocessingModule():
             df = df[~(html_recap_mask | html_summary_mask)]
         
         # Filter 5: Remove samples with corrupted recap content
-        corrupted_recap_mask = df['game_recap'].str.contains('\[No meaningful paragraphs found\]', regex=False, na=False)
+        corrupted_recap_mask = df['game_recap'].str.contains(r'\[No meaningful paragraphs found\]', regex=False, na=False)
         corrupted_count = corrupted_recap_mask.sum()
         if corrupted_count > 0:
             logger.warning(f"Removing {corrupted_count} samples with corrupted recap content")
