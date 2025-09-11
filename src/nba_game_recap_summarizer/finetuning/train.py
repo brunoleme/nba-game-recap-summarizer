@@ -169,7 +169,9 @@ def train(cfg: DictConfig):
     model.tokenizer.save_pretrained(hf_save_path)
     logger.success("Model saved successfully")
 
-    wandb_logger.experiment.summary["best_val_loss"] = trainer.callback_metrics["val_loss"].item()
-    wandb_logger.experiment.summary["best_epoch"] = trainer.current_epoch
+    # Log final values (best tracking would need custom callback)
+    wandb_logger.experiment.summary["final_val_loss"] = trainer.callback_metrics["val_loss"].item()
+    wandb_logger.experiment.summary["final_train_loss"] = trainer.callback_metrics.get("train_loss", 0.0)
+    wandb_logger.experiment.summary["final_epoch"] = trainer.current_epoch
     wandb_logger.experiment.summary["sagemaker_pipeline_run_id"] = pipeline_run_id
     wandb.finish()

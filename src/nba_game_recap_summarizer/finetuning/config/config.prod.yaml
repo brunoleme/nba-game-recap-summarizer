@@ -34,21 +34,32 @@ training:
   # Optimized for Tesla A10G (24GB) with 1B model
   enable_model_summary: false
   log_every_n_steps: 50
+  # Learning rate scheduling
+  lr_scheduler:
+    name: "linear_warmup"  # Options: linear_warmup, cosine, step
+    T_max: 5  # For cosine scheduler
+    eta_min: 2e-6  # For cosine scheduler
+    step_size: 2  # For step scheduler
+    gamma: 0.5  # For step scheduler
 
 data:
-  train_samples: 3000
-  val_samples: 750
-  test_samples: 750
-  shuffle: false        # Whether to shuffle datasets
+  train_samples: 3500  # Use all available data for production
+  val_samples: 500
+  test_samples: 500
+  shuffle: true        # Enable data shuffling for better training
   shuffle_seed: 42
-  train_split: 0.8
-  val_split: 0.1
-  test_split: 0.1
+  # Remove train_split, val_split, test_split - rely on train_samples, val_samples, test_samples
   shuffle_buffer_size: 5000
   source_data_folder: "/opt/ml/processing/input/source-data"
   source_data_path: "game_recaps_with_summaries.csv"
   preprocessed_output_data_folder: "/opt/ml/processing/output"
   preprocessed_input_data_folder: "/opt/ml/processing/input"
+  # Data quality filtering settings
+  apply_quality_filters: true
+  min_summary_length: 10
+  min_recap_length: 50
+  max_length_ratio: 0.8
+  min_length_ratio: 0.01
 
 evaluation:
   model_artifact_dir: "/opt/ml/processing/input/model-artifacts"
