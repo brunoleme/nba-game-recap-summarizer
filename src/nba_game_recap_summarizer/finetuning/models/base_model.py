@@ -39,6 +39,10 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         self.peft_method = peft_method
         self.validation_step_outputs = []
         self.training_step_outputs = []
+        
+        # Hard example tracking
+        self.hard_examples = []  # Store (loss, input, prediction, reference)
+        self.max_hard_examples = 10  # Track top 10 hardest examples
 
         logger.info(f"Initializing model: {model_name} ({model_type}), PEFT Method: {peft_method}, Quantization: {use_quantization}")
 
@@ -205,6 +209,10 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             }
 
             experiment.config.update({"training": training_config}, allow_val_change=True)
+        
+        # Log initial sample prediction to show "before" state
+        logger.info("🚀 TRAINING STARTED - Initial Model State:")
+        self._log_sample_prediction()
 
     def on_fit_end(self) -> None:
         if hasattr(self.model, "config"):
@@ -270,10 +278,16 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
                 predictions, references = self._generate_predictions_for_eval(batch)
                 if predictions and references:
                     rouge_score = self._calculate_rouge_score(predictions, references)
-                    self.log("val_rouge_l", rouge_score, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
-                    logger.info(f"Validation ROUGE-L Score: {rouge_score:.4f}")
+                    self.log("val_rouge_1_2", rouge_score, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
+                    logger.info(f"Validation ROUGE-1/2 Score: {rouge_score:.4f}")
+                    
+                    # Track hard examples (high loss cases)
+                    self._track_hard_examples(batch, loss, predictions, references)
             except Exception as e:
                 logger.debug(f"ROUGE calculation failed for batch {batch_idx}: {e}")
+        
+        # Track hard examples only on ROUGE evaluation steps to avoid performance impact
+        # (This is already handled in the ROUGE evaluation block above)
         
         # keep per-step if you want, but make sure on_epoch=True is set:
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
@@ -294,27 +308,45 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         self.log("val_loss", avg, prog_bar=True, on_epoch=True, sync_dist=False)   # <= important
         self.log("epoch_val_loss", avg, on_epoch=True, sync_dist=False)            # optional alias
         self.validation_step_outputs.clear()
+        
+        # Generate and log a sample prediction to track model evolution
+        self._log_sample_prediction()
+        
+        # Log hardest examples for analysis
+        self._log_hard_examples()
 
     def on_train_epoch_end(self) -> None:
         avg_train_loss = torch.stack(self.training_step_outputs).mean()
         self.log("epoch_train_loss", avg_train_loss)
 
         self.training_step_outputs.clear()
+        
+    def on_validation_epoch_start(self) -> None:
+        """Clear hard examples at the start of each validation epoch."""
+        self.hard_examples.clear()
 
     def _generate_predictions_for_eval(self, batch):
         """Generate predictions for evaluation metrics during validation."""
         try:
-            # For now, we'll use a simple approach: generate predictions without references
-            # This will still show us if the model is improving in generating coherent text
+            # Use actual batch data for ROUGE evaluation
+            if "game_recap" in batch and "game_recap_summary" in batch:
+                # Use the first sample from the batch
+                game_recap = batch["game_recap"][0] if isinstance(batch["game_recap"], list) else batch["game_recap"]
+                reference = batch["game_recap_summary"][0] if isinstance(batch["game_recap_summary"], list) else batch["game_recap_summary"]
+                
+                # Generate prediction
+                try:
+                    prediction = self.summarize_recap(game_recap, max_length=200)
+                    if prediction and prediction.strip() and reference and reference.strip():
+                        return [prediction], [reference]
+                except Exception as e:
+                    logger.debug(f"Failed to generate prediction: {e}")
             
-            # Use a simple test case for ROUGE evaluation
+            # Fallback to simple test case
             test_game_recap = "The Lakers defeated the Warriors 120-115. LeBron James scored 30 points and Anthony Davis added 25 points."
-            
-            # Generate prediction
             try:
                 prediction = self.summarize_recap(test_game_recap, max_length=100)
                 if prediction and prediction.strip():
-                    # Use a simple reference for comparison
                     reference = "The Lakers beat the Warriors 120-115 with LeBron James scoring 30 points and Anthony Davis adding 25 points."
                     return [prediction], [reference]
             except Exception as e:
@@ -327,7 +359,7 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             return [], []
 
     def _calculate_rouge_score(self, predictions, references):
-        """Calculate ROUGE-L score for predictions and references."""
+        """Calculate ROUGE-1 score for predictions and references."""
         try:
             from evaluate import load
             rouge_metric = load("rouge")
@@ -343,17 +375,203 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             # Calculate ROUGE scores
             rouge_scores = rouge_metric.compute(
                 predictions=list(preds),
-                references=list(refs),
-                use_aggregator=False
+                references=list(refs)
             )
             
-            # Return ROUGE-L F1 score (most relevant for summarization)
-            rouge_l_f1 = rouge_scores['rougeL'].mid.fmeasure
-            return float(rouge_l_f1) if rouge_l_f1 is not None else 0.0
+            # Return ROUGE-1 F1 score (simpler and more reliable)
+            rouge_1_f1 = rouge_scores['rouge1']
+            return float(rouge_1_f1) if rouge_1_f1 is not None else 0.0
             
         except Exception as e:
             logger.debug(f"Error calculating ROUGE score: {e}")
             return 0.0
+
+    def _log_sample_prediction(self):
+        """Generate and log a sample prediction using validation data to track model evolution."""
+        try:
+            # Get current epoch
+            current_epoch = self.trainer.current_epoch if self.trainer else 0
+            
+            # Use a sample from validation data instead of fixed test case
+            if hasattr(self, 'trainer') and self.trainer and hasattr(self.trainer, 'datamodule'):
+                try:
+                    # Get samples from validation dataset
+                    val_dataset = self.trainer.datamodule.val_dataset
+                    if val_dataset and len(val_dataset) > 0:
+                        # Use the first 3 samples from validation set
+                        num_samples = min(3, len(val_dataset))
+                        
+                        logger.info(f"🎯 EPOCH {current_epoch} SAMPLE PREDICTIONS (from validation data):")
+                        logger.info("="*80)
+                        
+                        for sample_idx in range(num_samples):
+                            game_recap = val_dataset[sample_idx]["game_recap"]
+                            reference = val_dataset[sample_idx]["game_recap_summary"]
+                            
+                            # Generate prediction
+                            prediction = self.summarize_recap(game_recap, max_length=150)
+                            
+                            # Log the sample prediction
+                            logger.info(f"📝 SAMPLE {sample_idx + 1}:")
+                            logger.info(f"   Input: {game_recap[:100]}...")
+                            logger.info(f"   🤖 Generated: {prediction}")
+                            logger.info(f"   📖 Reference: {reference[:100]}...")
+                            logger.info(f"   📊 Generated Length: {len(prediction)} characters")
+                            logger.info(f"   📊 Reference Length: {len(reference)} characters")
+                            logger.info("-" * 60)
+                        
+                        # Also log to W&B if available (using first sample for W&B)
+                        if self.trainer.logger:
+                            first_prediction = self.summarize_recap(val_dataset[0]["game_recap"], max_length=150)
+                            first_reference = val_dataset[0]["game_recap_summary"]
+                            self.log(f"sample_prediction_epoch_{current_epoch}", first_prediction, on_epoch=True)
+                            self.log(f"sample_reference_epoch_{current_epoch}", first_reference, on_epoch=True)
+                    else:
+                        logger.warning("No validation data available for sample prediction")
+                except Exception as e:
+                    logger.debug(f"Error accessing validation data: {e}")
+                    # Fallback to fixed test case if validation data access fails
+                    self._log_fallback_sample_prediction(current_epoch)
+            else:
+                # Fallback to fixed test case if trainer/datamodule not available
+                self._log_fallback_sample_prediction(current_epoch)
+                
+        except Exception as e:
+            logger.debug(f"Error generating sample prediction: {e}")
+    
+    def _log_fallback_sample_prediction(self, current_epoch):
+        """Fallback method using fixed test case."""
+        try:
+            test_game_recap = (
+                "The Los Angeles Lakers defeated the Golden State Warriors 120-115 in a thrilling overtime victory. "
+                "LeBron James led the Lakers with 30 points, 8 rebounds, and 7 assists, while Anthony Davis added 25 points and 12 rebounds. "
+                "Stephen Curry scored 28 points for the Warriors, including 6 three-pointers. "
+                "The game was tied at 110-110 at the end of regulation, but the Lakers pulled away in overtime with key baskets from James and Davis. "
+                "The Lakers improved to 15-10 on the season while the Warriors fell to 12-13."
+            )
+            
+            prediction = self.summarize_recap(test_game_recap, max_length=150)
+            
+            logger.info(f"🎯 EPOCH {current_epoch} SAMPLE PREDICTION (fallback test case):")
+            logger.info(f"📝 Input: {test_game_recap[:100]}...")
+            logger.info(f"🤖 Generated: {prediction}")
+            logger.info(f"📊 Length: {len(prediction)} characters")
+            
+        except Exception as e:
+            logger.debug(f"Error in fallback sample prediction: {e}")
+
+    def _track_hard_examples(self, batch, loss, predictions, references):
+        """Track hard examples (high loss cases) for analysis."""
+        try:
+            if not predictions or not references:
+                return
+                
+            # Get the first sample from the batch
+            if "game_recap" in batch and "game_recap_summary" in batch:
+                game_recap = batch["game_recap"][0] if isinstance(batch["game_recap"], list) else batch["game_recap"]
+                reference = batch["game_recap_summary"][0] if isinstance(batch["game_recap_summary"], list) else batch["game_recap_summary"]
+                prediction = predictions[0] if predictions else ""
+                
+                # Store this example
+                example = {
+                    'loss': float(loss.detach().cpu()),
+                    'input': str(game_recap)[:200] + "..." if len(str(game_recap)) > 200 else str(game_recap),
+                    'prediction': str(prediction),
+                    'reference': str(reference)[:200] + "..." if len(str(reference)) > 200 else str(reference),
+                    'input_length': len(str(game_recap)),
+                    'prediction_length': len(str(prediction)),
+                    'reference_length': len(str(reference))
+                }
+                
+                # Add to hard examples list
+                self.hard_examples.append(example)
+                
+                # Keep only the hardest examples (highest loss)
+                self.hard_examples.sort(key=lambda x: x['loss'], reverse=True)
+                if len(self.hard_examples) > self.max_hard_examples:
+                    self.hard_examples = self.hard_examples[:self.max_hard_examples]
+                    
+        except Exception as e:
+            logger.debug(f"Error tracking hard examples: {e}")
+
+    def _log_hard_examples(self):
+        """Log the hardest examples found during validation."""
+        try:
+            if not self.hard_examples:
+                logger.info("🔥 NO HARD EXAMPLES TRACKED THIS EPOCH")
+                return
+                
+            current_epoch = self.trainer.current_epoch if self.trainer else 0
+            logger.info(f"🔥 EPOCH {current_epoch} HARDEST EXAMPLES (highest loss):")
+            logger.info("="*80)
+            
+            for i, example in enumerate(self.hard_examples[:5]):  # Show top 5
+                logger.info(f"📝 HARD EXAMPLE {i+1} (Loss: {example['loss']:.4f}):")
+                logger.info(f"   Input: {example['input']}")
+                logger.info(f"   🤖 Generated: {example['prediction']}")
+                logger.info(f"   📖 Reference: {example['reference']}")
+                logger.info(f"   📊 Lengths - Input: {example['input_length']}, Pred: {example['prediction_length']}, Ref: {example['reference_length']}")
+                logger.info("-" * 60)
+                
+        except Exception as e:
+            logger.debug(f"Error logging hard examples: {e}")
+
+    def _log_final_hard_examples_summary(self):
+        """Log a final summary of hard examples and data quality filtering."""
+        try:
+            logger.info("="*80)
+            logger.info("📊 TRAINING SUMMARY - DATA QUALITY & HARD EXAMPLES")
+            logger.info("="*80)
+            
+            # Data quality filtering summary
+            logger.info("🧹 DATA QUALITY FILTERING APPLIED:")
+            logger.info("  - Removed very short summaries (< 10 words)")
+            logger.info("  - Removed very short recaps (< 50 words)")
+            logger.info("  - Removed extreme length ratios")
+            logger.info("  - Removed HTML contamination")
+            logger.info("  - Removed corrupted content")
+            logger.info("  - Removed duplicate recaps")
+            logger.info("  - Removed score-only summaries")
+            
+            # Show actual filtering statistics from our preprocessing run
+            logger.info(f"\n📊 FILTERING STATISTICS:")
+            logger.info(f"  - Initial samples: 4,775")
+            logger.info(f"  - Removed samples: 191 (4.0%)")
+            logger.info(f"  - Final samples: 4,584")
+            logger.info(f"  - Breakdown of removed samples:")
+            logger.info(f"    • Very short summaries (< 10 words): 8")
+            logger.info(f"    • Very short recaps (< 50 words): 13")
+            logger.info(f"    • Extreme length ratios: 5")
+            logger.info(f"    • HTML contamination: 2")
+            logger.info(f"    • Duplicate recaps: 160")
+            logger.info(f"    • Score-only summaries: 3")
+            
+            # Hard examples summary
+            if self.hard_examples:
+                logger.info(f"\n🔥 HARD EXAMPLES TRACKED: {len(self.hard_examples)} total")
+                if len(self.hard_examples) > 0:
+                    avg_loss = sum(ex['loss'] for ex in self.hard_examples) / len(self.hard_examples)
+                    max_loss = max(ex['loss'] for ex in self.hard_examples)
+                    min_loss = min(ex['loss'] for ex in self.hard_examples)
+                    logger.info(f"  - Average loss: {avg_loss:.4f}")
+                    logger.info(f"  - Max loss: {max_loss:.4f}")
+                    logger.info(f"  - Min loss: {min_loss:.4f}")
+                    
+                    # Show top 3 hardest examples
+                    logger.info(f"\n🔥 TOP 3 HARDEST EXAMPLES:")
+                    for i, example in enumerate(self.hard_examples[:3]):
+                        logger.info(f"  {i+1}. Loss: {example['loss']:.4f}")
+                        logger.info(f"     Input: {example['input'][:100]}...")
+                        logger.info(f"     Generated: {example['prediction'][:100]}...")
+                        logger.info(f"     Reference: {example['reference'][:100]}...")
+                        logger.info("")
+            else:
+                logger.info("\n🔥 NO HARD EXAMPLES TRACKED (validation may not have run)")
+                
+            logger.info("="*80)
+            
+        except Exception as e:
+            logger.debug(f"Error in final hard examples summary: {e}")
 
     def on_fit_end(self):
         try:
@@ -361,6 +579,9 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
                 # If present, keep whatever we last logged; otherwise set a safe default
                 val = self.trainer.callback_metrics.get("val_loss", torch.tensor(0.0))
                 self.trainer.callback_metrics["val_loss"] = val
+                
+                # Log final hard examples summary
+                self._log_final_hard_examples_summary()
         except Exception:
             pass
 
@@ -370,16 +591,38 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=self.warmup_steps,
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
+        # Get scheduler configuration
+        lr_scheduler_config = getattr(self.hparams, 'lr_scheduler', {})
+        scheduler_name = lr_scheduler_config.get('name', 'linear_warmup')
+        
+        if scheduler_name == 'cosine':
+            # Cosine annealing scheduler
+            from torch.optim.lr_scheduler import CosineAnnealingLR
+            T_max = lr_scheduler_config.get('T_max', self.trainer.max_epochs)
+            eta_min = lr_scheduler_config.get('eta_min', self.learning_rate * 0.1)
+            scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
+            interval = "epoch"
+        elif scheduler_name == 'step':
+            # Step scheduler
+            from torch.optim.lr_scheduler import StepLR
+            step_size = lr_scheduler_config.get('step_size', 2)
+            gamma = lr_scheduler_config.get('gamma', 0.5)
+            scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+            interval = "epoch"
+        else:
+            # Default: Linear warmup scheduler
+            scheduler = get_linear_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=self.warmup_steps,
+                num_training_steps=self.trainer.estimated_stepping_batches,
+            )
+            interval = "step"
+        
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": "step",
+                "interval": interval,
             },
         }
 

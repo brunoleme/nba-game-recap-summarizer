@@ -132,8 +132,8 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 typical_p=None,
                 eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                 pad_token_id=self.tokenizer.pad_token_id,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.1,
+                no_repeat_ngram_size=2,  # Reduced from 3 for more flexibility
+                repetition_penalty=1.3,  # Increased from 1.1 to reduce repetition
             )
 
         # Strip the prompt portion
@@ -223,8 +223,8 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                             typical_p=None,
                             eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                             pad_token_id=self.tokenizer.pad_token_id,
-                            no_repeat_ngram_size=3,
-                            repetition_penalty=1.1,
+                            no_repeat_ngram_size=2,  # Reduced from 3 for more flexibility
+                            repetition_penalty=1.3,  # Increased from 1.1 to reduce repetition
                         )
                         
                         logger.info(f"Generated output for batch {batch_idx}, shape: {out.shape}")
