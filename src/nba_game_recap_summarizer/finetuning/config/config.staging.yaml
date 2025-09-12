@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 4096  # Full sequence length with Tesla A10G (24GB)
+  max_length: 2048  # Reduced from 4096 to save memory  # Full sequence length with Tesla A10G (24GB)
 
 lora:
   r: 8
@@ -18,8 +18,8 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 4  # Increased for better training stability
-  accumulate_grad_batches: 2  # Effective batch size = 4 * 2 = 8
+  batch_size: 2  # Reduced from 4 to save memory
+  accumulate_grad_batches: 4  # Increased to maintain effective batch size = 2 * 4 = 8
   learning_rate: 2e-5  # Increased from 1e-5
   warmup_steps: 500  # Increased from 250
   weight_decay: 0.01  # Added regularization
@@ -34,9 +34,15 @@ training:
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true
-  # Optimized for Tesla A10G (24GB)
+  # Memory optimization settings
   enable_model_summary: false
   log_every_n_steps: 10
+  # Additional memory optimizations
+  limit_train_batches: 1.0  # Use all training data
+  limit_val_batches: 1.0    # Use all validation data
+  # Memory management
+  val_check_interval: 0.5    # Check validation every 50% of epoch
+  check_val_every_n_epoch: 1 # Validate every epoch
   # Learning rate scheduling
   lr_scheduler:
     name: "linear_warmup"  # Options: linear_warmup, cosine, step

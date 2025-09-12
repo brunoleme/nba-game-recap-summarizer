@@ -43,6 +43,9 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         # Hard example tracking
         self.hard_examples = []  # Store (loss, input, prediction, reference)
         self.max_hard_examples = 10  # Track top 10 hardest examples
+        
+        # Memory management
+        self._memory_optimization_enabled = True
 
         logger.info(f"Initializing model: {model_name} ({model_type}), PEFT Method: {peft_method}, Quantization: {use_quantization}")
 
@@ -625,6 +628,23 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
                 "interval": interval,
             },
         }
+
+    def _clear_memory(self):
+        """Clear GPU memory and run garbage collection."""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+    
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        """Clear memory after each training batch."""
+        if self._memory_optimization_enabled and batch_idx % 10 == 0:
+            self._clear_memory()
+    
+    def on_validation_batch_end(self, outputs, batch, batch_idx):
+        """Clear memory after each validation batch."""
+        if self._memory_optimization_enabled and batch_idx % 5 == 0:
+            self._clear_memory()
 
     @abstractmethod
     def summarize_recap(self, game_recap: str, max_length: Optional[int] = None) -> str:
