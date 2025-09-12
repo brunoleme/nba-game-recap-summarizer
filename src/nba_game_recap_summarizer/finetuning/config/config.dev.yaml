@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # Reduced from 4096 to save memory
+  max_length: 1024  # Further reduced for Phi-3.5-mini on T4 GPU
 
 lora:
   r: 8
@@ -18,8 +18,8 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 1  # Reduced to 1 to fit in GPU memory
-  accumulate_grad_batches: 4  # Effective batch size = 1 * 4 = 4
+  batch_size: 1  # Keep at 1 for Phi-3.5-mini on T4 GPU
+  accumulate_grad_batches: 8  # Increased to maintain effective batch size
   learning_rate: 1e-5
   warmup_steps: 50  # Reduced for small dataset
   weight_decay: 0.0
@@ -31,6 +31,9 @@ training:
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true  # Enabled to save memory
+  sync_batchnorm: false  # Disable for memory savings
+  deterministic: false  # Disable for memory savings
+  benchmark: false  # Disable for memory savings
   # Learning rate scheduling
   lr_scheduler:
     name: "linear_warmup"  # Options: linear_warmup, cosine, step

@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # Increased for Phi-3.5-mini's longer context support
+  max_length: 1024  # Conservative for Phi-3.5-mini on A10G GPU
 
 lora:
   r: 8
