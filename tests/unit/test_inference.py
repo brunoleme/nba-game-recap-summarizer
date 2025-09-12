@@ -14,6 +14,7 @@ from nba_game_recap_summarizer.api.inference import (
     summarize_recap
 )
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
+from nba_game_recap_summarizer.finetuning.models.phi_model import PhiRecapSummarizationModel
 
 
 class TestGameRecapRequest:

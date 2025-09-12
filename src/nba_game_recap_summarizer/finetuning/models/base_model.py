@@ -99,11 +99,13 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         # PEFT Config
         self.peft_config = None
         if self.peft_method == "lora":
+            # Get model-specific target modules
+            target_modules = self._get_lora_target_modules(model_type)
             self.peft_config = LoraConfig(
                 r=lora_r,
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
-                target_modules=["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
+                target_modules=target_modules,
                 task_type="CAUSAL_LM",
             )
         elif self.peft_method == "prompt_tuning":
@@ -134,6 +136,18 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             if getattr(self.tokenizer, "pad_token", None) is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             self.tokenizer.padding_side = "left"
+
+    def _get_lora_target_modules(self, model_type: str) -> list:
+        """Get LoRA target modules based on model type."""
+        if model_type == "llama":
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        elif model_type == "phi":
+            # Phi-3.5-mini uses similar architecture to LLaMA
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        else:
+            # Default to LLaMA modules for unknown model types
+            logger.warning(f"Unknown model type '{model_type}', using default LLaMA target modules")
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
     @abstractmethod
     def _initialize_model(

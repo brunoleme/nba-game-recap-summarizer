@@ -3,6 +3,7 @@ from loguru import logger
 
 MODEL_CLASSES = {
     "llama": "nba_game_recap_summarizer.finetuning.models.llama_model.LlamaRecapSummarizationModel",
+    "phi": "nba_game_recap_summarizer.finetuning.models.phi_model.PhiRecapSummarizationModel",
     # Add more model types here as needed
 }
 

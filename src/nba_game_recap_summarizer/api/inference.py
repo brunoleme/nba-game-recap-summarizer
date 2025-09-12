@@ -5,6 +5,7 @@ import os
 
 from nba_game_recap_summarizer.api.config import settings
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
+from nba_game_recap_summarizer.finetuning.models.phi_model import PhiRecapSummarizationModel
 from nba_game_recap_summarizer.finetuning.utils.logger import setup_logger
 from nba_game_recap_summarizer.finetuning.utils.text_utils import clean_game_recap
 
@@ -29,20 +30,33 @@ async def load_model():
     try:
         global model
         
+        # Determine model type from environment or config
+        model_type = os.getenv("MODEL_TYPE", "llama").lower()
+        
         # Check if model was downloaded during build time
         local_model_path = "/app/models/model.ckpt"
         if os.path.exists(local_model_path):
-            logger.info(f"Loading model from local path: {local_model_path}")
-            model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                checkpoint_path=local_model_path,
-            )
+            logger.info(f"Loading {model_type} model from local path: {local_model_path}")
+            if model_type == "phi":
+                model = PhiRecapSummarizationModel.load_model_from_checkpoint(
+                    checkpoint_path=local_model_path,
+                )
+            else:  # Default to LLaMA
+                model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
+                    checkpoint_path=local_model_path,
+                )
         else:
-            logger.info(f"Local model not found, loading from S3: {settings.model_path}")
-            model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                checkpoint_path=str(settings.model_path),
-            )
+            logger.info(f"Local model not found, loading {model_type} model from S3: {settings.model_path}")
+            if model_type == "phi":
+                model = PhiRecapSummarizationModel.load_model_from_checkpoint(
+                    checkpoint_path=str(settings.model_path),
+                )
+            else:  # Default to LLaMA
+                model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
+                    checkpoint_path=str(settings.model_path),
+                )
         
-        logger.info("Model loaded successfully")
+        logger.info(f"{model_type.upper()} model loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
         raise RuntimeError("Failed to initialize model")

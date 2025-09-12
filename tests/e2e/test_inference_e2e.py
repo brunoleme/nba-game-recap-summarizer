@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 import torch
 
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
+from nba_game_recap_summarizer.finetuning.models.phi_model import PhiRecapSummarizationModel
 
 
 class TestInferenceServiceE2E:
