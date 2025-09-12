@@ -4,12 +4,12 @@ logging:
   log_path: "logs"
 
 model:
-  type: "llama"
-  name: "meta-llama/Llama-3.2-1B-Instruct"  # Switch to 1B model for A10G compatibility
+  type: "phi"
+  name: "microsoft/Phi-3.5-mini-instruct"  # Switch to Phi-3.5-mini for better performance
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 1024  # Further reduced to save memory
+  max_length: 2048  # Increased for Phi-3.5-mini's longer context support
 
 lora:
   r: 8

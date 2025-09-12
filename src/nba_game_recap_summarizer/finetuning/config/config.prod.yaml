@@ -4,8 +4,8 @@ logging:
   log_path: "logs"
 
 model:
-  type: "llama"
-  name: "meta-llama/Llama-3.2-1B-Instruct"
+  type: "phi"
+  name: "microsoft/Phi-3.5-mini-instruct"
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
