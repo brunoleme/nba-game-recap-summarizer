@@ -187,6 +187,14 @@ class SummarizationModelTrainer:
             )
             self.save_checkpoint(checkpoint_path, is_best=is_best)
             
+            # Also save as best_model.ckpt if this is the best model
+            if is_best:
+                best_checkpoint_path = os.path.join(
+                    self.config.training.model_artifact_dir, 
+                    f"{os.getenv('PIPELINE_RUN_ID', 'pipeline_id')}/checkpoints/best_model.ckpt"
+                )
+                self.save_checkpoint(best_checkpoint_path, is_best=False)
+            
             # Early stopping
             if self.patience_counter >= self.config.training.patience:
                 logger.info(f"Early stopping triggered after {epoch + 1} epochs")
