@@ -283,7 +283,7 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
 
         try:
             # Load checkpoint directly from S3 or local path
-            checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
+            checkpoint = LlamaRecapSummarizationModel.load_model_from_checkpoint(checkpoint_path)
 
             # The checkpoint is already fully loaded with model, tokenizer, and state
             # Just return it directly instead of creating a new instance

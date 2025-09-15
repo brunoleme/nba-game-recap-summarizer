@@ -5,12 +5,12 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 from peft import LoraConfig, PromptTuningConfig
-import pytorch_lightning as pl
 import torch
+import torch.nn as nn
 from torch.optim import AdamW
 from transformers import BitsAndBytesConfig, get_linear_schedule_with_warmup
 
-class BaseRecapSummarizationModel(pl.LightningModule, ABC):
+class BaseRecapSummarizationModel(nn.Module, ABC):
     def __init__(
         self,
         model_name: str,
@@ -28,7 +28,6 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         **kwargs,
     ):
         super().__init__()
-        self.save_hyperparameters()
         self.model_name = model_name
         self.model_type = model_type
         self.learning_rate = learning_rate
@@ -37,8 +36,6 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         self.use_quantization = use_quantization
         self.quantization_type = quantization_type
         self.peft_method = peft_method
-        self.validation_step_outputs = []
-        self.training_step_outputs = []
         
         # Hard example tracking
         self.hard_examples = []  # Store (loss, input, prediction, reference)
@@ -46,6 +43,9 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         
         # Memory management
         self._memory_optimization_enabled = True
+        
+        # Device management
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         logger.info(f"Initializing model: {model_name} ({model_type}), PEFT Method: {peft_method}, Quantization: {use_quantization}")
 
@@ -144,6 +144,9 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         elif model_type == "phi":
             # Phi-3.5-mini uses similar architecture to LLaMA
             return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        elif model_type == "mistral":
+            # Mistral uses similar architecture to LLaMA
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
         else:
             # Default to LLaMA modules for unknown model types
             logger.warning(f"Unknown model type '{model_type}', using default LLaMA target modules")
@@ -161,77 +164,17 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         """Initialize model and tokenizer."""
         pass
 
-    def setup(self, stage: Optional[str] = None) -> None:
-        """Setup runs on every GPU/process."""
-        if stage == "fit" and self.trainer.logger:
-            experiment = self.trainer.logger.experiment
-
-            # Add experiment tags
-            experiment.tags = {
-                "base_model_name": self.hparams.model_name,
-                "lr": self.hparams.learning_rate,
-                "gpu": "gpu" if torch.cuda.is_available() else "cpu",
-                "os": platform.system().lower(),
-                "torch": torch.__version__.split("+")[0],
-                "num_gpu": torch.cuda.device_count() if torch.cuda.is_available() else "no_gpu"
-            }
-
-            # Add experiment config
-            experiment.config.update(
-                {
-                    "model": {
-                        "name": self.hparams.model_name,
-                        "learning_rate": self.learning_rate,
-                        "warmup_steps": self.warmup_steps,
-                        "weight_decay": self.weight_decay,
-                    },
-                    "hardware": {
-                        "gpu": torch.cuda.is_available(),
-                        "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
-                        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-                    },
-                    "environment": {
-                        "python_version": platform.python_version(),
-                        "pytorch_version": torch.__version__,
-                        "platform": platform.platform(),
-                    },
-                },
-                allow_val_change=True,
-            )
-
-    def on_fit_start(self) -> None:
-        """Called when fit begins."""
+    def setup_training(self) -> None:
+        """Setup for training - disable cache for training."""
         if hasattr(self.model, "config"):
             self.model.config.use_cache = False  # important for training
-        if self.trainer.logger:
-            experiment = self.trainer.logger.experiment
-            current_tags = list(experiment.tags) if experiment.tags else []
-
-            new_tags = [
-                f"max_epochs_{self.trainer.max_epochs}",
-                f"precision_{self.trainer.precision}",
-                f"grad_clip_{self.trainer.gradient_clip_val}",
-            ]
-
-            experiment.tags = current_tags + new_tags
-
-            training_config = {
-                "max_epochs": self.trainer.max_epochs,
-                "precision": self.trainer.precision,
-                "gradient_clip_val": self.trainer.gradient_clip_val,
-                "accumulate_grad_batches": self.trainer.accumulate_grad_batches,
-                "strategy_type": self.trainer.strategy.__class__.__name__,
-                "batch_size": self.trainer.datamodule.batch_size
-                if hasattr(self.trainer, "datamodule") else None,
-            }
-
-            experiment.config.update({"training": training_config}, allow_val_change=True)
         
         # Log initial sample prediction to show "before" state
         logger.info("🚀 TRAINING STARTED - Initial Model State:")
         self._log_sample_prediction()
 
-    def on_fit_end(self) -> None:
+    def setup_inference(self) -> None:
+        """Setup for inference - enable cache for inference."""
         if hasattr(self.model, "config"):
             self.model.config.use_cache = True   # re-enable for inference
 
@@ -240,62 +183,27 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         """Forward pass of the model."""
         pass
 
-    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        # Log GPU memory before forward pass
-        if torch.cuda.is_available():
-            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
-                logger.debug(f"Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
-        
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Compute loss for a batch - used in training loop."""
         outputs = self(**batch)
-        loss = outputs.loss
+        return outputs.loss
 
-        # Log GPU memory after forward pass
-        if torch.cuda.is_available():
-            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
-                logger.debug(f"Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
-                logger.debug(f"Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
-        
-        self.log("train_loss", loss, prog_bar=True)
-        self.training_step_outputs.append(loss.detach().cpu())
-
-        return loss
-
-
-    # def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-    #     outputs = self(**batch)
-    #     loss = outputs.loss
-
-    #     self.log("val_loss", loss, prog_bar=True)
-    #     self.validation_step_outputs.append(loss.detach().cpu())
-
-    def validation_step(self, batch, batch_idx):
-        # Log GPU memory before forward pass
-        if torch.cuda.is_available():
-            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
-                logger.debug(f"Val Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
-        
+    def compute_validation_metrics(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, float]:
+        """Compute validation metrics for a batch."""
         outputs = self(**batch)
         loss = outputs.loss
         
-        # Log GPU memory after forward pass
-        if torch.cuda.is_available():
-            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
-                logger.debug(f"Val Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
-                logger.debug(f"Val Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
+        metrics = {"val_loss": loss.item()}
         
         # Calculate ROUGE score for a subset of validation samples
-        rouge_frequency = getattr(self.hparams, 'rouge_eval_frequency', 10)
+        rouge_frequency = getattr(self, 'rouge_eval_frequency', 10)
         if batch_idx % rouge_frequency == 0 and hasattr(self, 'tokenizer'):
             try:
                 # Generate predictions for ROUGE evaluation
                 predictions, references = self._generate_predictions_for_eval(batch)
                 if predictions and references:
                     rouge_score = self._calculate_rouge_score(predictions, references)
-                    self.log("val_rouge_1_2", rouge_score, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
+                    metrics["val_rouge_1_2"] = rouge_score
                     logger.info(f"Validation ROUGE-1/2 Score: {rouge_score:.4f}")
                     
                     # Track hard examples (high loss cases)
@@ -303,44 +211,7 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             except Exception as e:
                 logger.debug(f"ROUGE calculation failed for batch {batch_idx}: {e}")
         
-        # Track hard examples only on ROUGE evaluation steps to avoid performance impact
-        # (This is already handled in the ROUGE evaluation block above)
-        
-        # keep per-step if you want, but make sure on_epoch=True is set:
-        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
-        self.validation_step_outputs.append(loss.detach().cpu())
-
-
-    # def on_validation_epoch_end(self) -> None:
-    #     avg_val_loss = torch.stack(self.validation_step_outputs).mean()
-    #     self.log("epoch_val_loss", avg_val_loss)
-
-    #     self.validation_step_outputs.clear()
-
-    def on_validation_epoch_end(self):
-        if self.validation_step_outputs:
-            avg = torch.stack(self.validation_step_outputs).mean()
-        else:
-            avg = torch.tensor(0.0, device=self.device)
-        self.log("val_loss", avg, prog_bar=True, on_epoch=True, sync_dist=False)   # <= important
-        self.log("epoch_val_loss", avg, on_epoch=True, sync_dist=False)            # optional alias
-        self.validation_step_outputs.clear()
-        
-        # Generate and log a sample prediction to track model evolution
-        self._log_sample_prediction()
-        
-        # Log hardest examples for analysis
-        self._log_hard_examples()
-
-    def on_train_epoch_end(self) -> None:
-        avg_train_loss = torch.stack(self.training_step_outputs).mean()
-        self.log("epoch_train_loss", avg_train_loss)
-
-        self.training_step_outputs.clear()
-        
-    def on_validation_epoch_start(self) -> None:
-        """Clear hard examples at the start of each validation epoch."""
-        self.hard_examples.clear()
+        return metrics
 
     def _generate_predictions_for_eval(self, batch):
         """Generate predictions for evaluation metrics during validation."""
@@ -602,46 +473,40 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         except Exception:
             pass
 
-    def configure_optimizers(self):
+    def get_optimizer_and_scheduler(self, num_training_steps: int, lr_scheduler_config: Dict = None):
+        """Get optimizer and scheduler for training - used in training loop."""
         optimizer = AdamW(
             self.parameters(),
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
         )
-        # Get scheduler configuration
-        lr_scheduler_config = getattr(self.hparams, 'lr_scheduler', {})
+        
+        if lr_scheduler_config is None:
+            lr_scheduler_config = {}
+        
         scheduler_name = lr_scheduler_config.get('name', 'linear_warmup')
         
         if scheduler_name == 'cosine':
             # Cosine annealing scheduler
             from torch.optim.lr_scheduler import CosineAnnealingLR
-            T_max = lr_scheduler_config.get('T_max', self.trainer.max_epochs)
+            T_max = lr_scheduler_config.get('T_max', 3)  # Default 3 epochs
             eta_min = lr_scheduler_config.get('eta_min', self.learning_rate * 0.1)
             scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
-            interval = "epoch"
         elif scheduler_name == 'step':
             # Step scheduler
             from torch.optim.lr_scheduler import StepLR
             step_size = lr_scheduler_config.get('step_size', 2)
             gamma = lr_scheduler_config.get('gamma', 0.5)
             scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
-            interval = "epoch"
         else:
             # Default: Linear warmup scheduler
             scheduler = get_linear_schedule_with_warmup(
                 optimizer,
                 num_warmup_steps=self.warmup_steps,
-                num_training_steps=self.trainer.estimated_stepping_batches,
+                num_training_steps=num_training_steps,
             )
-            interval = "step"
         
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": interval,
-            },
-        }
+        return optimizer, scheduler
 
     def _clear_memory(self):
         """Clear GPU memory and run garbage collection."""
@@ -650,15 +515,13 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         import gc
         gc.collect()
     
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        """Clear memory after each training batch."""
-        if self._memory_optimization_enabled and batch_idx % 10 == 0:
-            self._clear_memory()
-    
-    def on_validation_batch_end(self, outputs, batch, batch_idx):
-        """Clear memory after each validation batch."""
-        if self._memory_optimization_enabled and batch_idx % 5 == 0:
-            self._clear_memory()
+    def clear_memory_if_needed(self, batch_idx: int, is_validation: bool = False):
+        """Clear memory periodically during training/validation."""
+        if self._memory_optimization_enabled:
+            if is_validation and batch_idx % 5 == 0:
+                self._clear_memory()
+            elif not is_validation and batch_idx % 10 == 0:
+                self._clear_memory()
 
     @abstractmethod
     def summarize_recap(self, game_recap: str, max_length: Optional[int] = None) -> str:

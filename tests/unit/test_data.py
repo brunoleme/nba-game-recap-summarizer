@@ -65,7 +65,6 @@ def test_data_splitting_with_mocker(mocker) -> None:
     mocker.patch("datasets.load_dataset", side_effect=mock_load_dataset)
 
     module = NBARecapDataModule(model_name="hf-internal-testing/tiny-random-LlamaForCausalLM", source_data_path=source_data_path, env_folder=env_folder, preprocessed_input_data_folder=preprocessed_input_data_folder, train_samples=10, val_samples=5, test_samples=5)
-    module.prepare_data()
     module.setup()
 
     assert len(module.train_dataset) == 10

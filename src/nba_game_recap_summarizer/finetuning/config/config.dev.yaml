@@ -9,7 +9,7 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 1024  # Conservative for A10G GPU
+  max_length: 2048  # Increased for P3 V100 GPU (32GB VRAM)
 
 lora:
   r: 8
@@ -18,8 +18,8 @@ lora:
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 1  # Conservative for A10G GPU
-  accumulate_grad_batches: 8  # Effective batch size = 1 * 8 = 8
+  batch_size: 2  # Increased for P3 V100 GPU (32GB VRAM)
+  accumulate_grad_batches: 4  # Effective batch size = 2 * 4 = 8
   learning_rate: 1e-5
   warmup_steps: 50  # Reduced for small dataset
   weight_decay: 0.0

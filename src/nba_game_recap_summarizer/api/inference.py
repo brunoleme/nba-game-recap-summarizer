@@ -6,6 +6,7 @@ import os
 from nba_game_recap_summarizer.api.config import settings
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
 from nba_game_recap_summarizer.finetuning.models.phi_model import PhiRecapSummarizationModel
+from nba_game_recap_summarizer.finetuning.models.mistral_model import MistralRecapSummarizationModel
 from nba_game_recap_summarizer.finetuning.utils.logger import setup_logger
 from nba_game_recap_summarizer.finetuning.utils.text_utils import clean_game_recap
 
@@ -41,6 +42,10 @@ async def load_model():
                 model = PhiRecapSummarizationModel.load_model_from_checkpoint(
                     checkpoint_path=local_model_path,
                 )
+            elif model_type == "mistral":
+                model = MistralRecapSummarizationModel.load_model_from_checkpoint(
+                    checkpoint_path=local_model_path,
+                )
             else:  # Default to LLaMA
                 model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
                     checkpoint_path=local_model_path,
@@ -49,6 +54,10 @@ async def load_model():
             logger.info(f"Local model not found, loading {model_type} model from S3: {settings.model_path}")
             if model_type == "phi":
                 model = PhiRecapSummarizationModel.load_model_from_checkpoint(
+                    checkpoint_path=str(settings.model_path),
+                )
+            elif model_type == "mistral":
+                model = MistralRecapSummarizationModel.load_model_from_checkpoint(
                     checkpoint_path=str(settings.model_path),
                 )
             else:  # Default to LLaMA

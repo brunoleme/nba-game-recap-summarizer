@@ -305,7 +305,7 @@ class PhiRecapSummarizationModel(BaseRecapSummarizationModel):
 
         try:
             # Load checkpoint directly from S3 or local path
-            checkpoint = PhiRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
+            checkpoint = PhiRecapSummarizationModel.load_model_from_checkpoint(checkpoint_path)
             logger.success("Model restored successfully from checkpoint")
             return checkpoint
 
