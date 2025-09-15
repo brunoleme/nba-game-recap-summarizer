@@ -4,30 +4,30 @@ logging:
   log_path: "logs"
 
 model:
-  type: "phi"
-  name: "microsoft/Phi-3.5-mini-instruct"
-  quantization: true
+  type: "mistral"
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
+  quantization: true  # Keep quantization for Mistral-7B on P3 V100 (32GB VRAM)
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # Increased for P3 V100 GPU (32GB VRAM)
+  max_length: 4096  # Increased for P3 V100 GPU (32GB VRAM)
 
 lora:
-  r: 8
-  alpha: 8
+  r: 16  # Increased for better performance on P3 V100
+  alpha: 32  # Increased proportionally with r
   dropout: 0.1
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 2  # Increased for P3 V100 GPU (32GB VRAM)
-  accumulate_grad_batches: 4  # Effective batch size = 2 * 4 = 8
-  learning_rate: 1e-5
-  warmup_steps: 50  # Reduced for small dataset
-  weight_decay: 0.0
-  patience: 3
-  precision: "16-mixed"        # if your trainer exposes this; T4 => fp16
+  batch_size: 8  # Significantly increased for P3 V100 GPU (32GB VRAM)
+  accumulate_grad_batches: 2  # Effective batch size = 8 * 2 = 16
+  learning_rate: 2e-5  # Increased learning rate for larger batch size
+  warmup_steps: 100  # Increased for better warmup
+  weight_decay: 0.01  # Added regularization
+  patience: 5  # Increased patience
+  precision: "16-mixed"        # Mixed precision for P3 V100
   gradient_clip_val: 1.0
-  max_epochs: 3
-  num_workers: 2  # Reduced to save memory
+  max_epochs: 5  # Increased epochs for better training
+  num_workers: 4  # Increased for better data loading on P3
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true  # Enabled to save memory

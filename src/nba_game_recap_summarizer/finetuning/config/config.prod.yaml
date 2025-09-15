@@ -4,29 +4,29 @@ logging:
   log_path: "logs"
 
 model:
-  type: "phi"
-  name: "microsoft/Phi-3.5-mini-instruct"
+  type: "mistral"
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 3072  # Reduced for memory efficiency with batch_size=2
+  max_length: 2048  # Optimized for Mistral-7B on P3 V100 GPU
 
 lora:
-  r: 8
-  alpha: 8
+  r: 16  # Increased for better performance on P3 V100
+  alpha: 32  # Increased proportionally with r
   dropout: 0.1
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 2  # Conservative for Tesla A10G (24GB) with 4096 sequence length
-  accumulate_grad_batches: 2  # Effective batch size = 2 * 2 = 4
+  batch_size: 4  # Increased for P3 V100 GPU (32GB VRAM) with Mistral-7B
+  accumulate_grad_batches: 4  # Effective batch size = 4 * 4 = 16
   learning_rate: 2e-5
   warmup_steps: 500
   weight_decay: 0.01
-  patience: 3
+  patience: 5  # Increased patience for better convergence
   gradient_clip_val: 1.0
-  max_epochs: 5
-  num_workers: 4  # Increased for faster data loading
+  max_epochs: 8  # Increased epochs for better training
+  num_workers: 4  # Good for P3 V100 data loading
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   precision: "16-mixed"
