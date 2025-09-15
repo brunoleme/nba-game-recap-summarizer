@@ -53,13 +53,14 @@ def train(cfg: DictConfig):
     total_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Total model parameters: {total_params:,}")
 
-    # Initialize wandb
-    wandb.init(
-        project=f"{cfg.project_name}-training-{env_folder}", 
-        name=f"{cfg.model.name}-{cfg.model.peft_method}", 
-        tags=[f"pipeline:{pipeline_run_id}"]
-    )
-    wandb.config.update(dict(cfg))
+    # Initialize wandb (skip in test environments)
+    if not os.getenv("SKIP_WANDB", "false").lower() == "true":
+        wandb.init(
+            project=f"{cfg.project_name}-training-{env_folder}", 
+            name=f"{cfg.model.name}-{cfg.model.peft_method}", 
+            tags=[f"pipeline:{pipeline_run_id}"]
+        )
+        wandb.config.update(dict(cfg))
 
     # Create trainer and train
     trainer = SummarizationModelTrainer(model, dataloaders, cfg)
@@ -83,10 +84,11 @@ def train(cfg: DictConfig):
     model.tokenizer.save_pretrained(hf_save_path)
     logger.success("Model saved successfully")
 
-    # Log final metrics
-    wandb.log({
-        "final_val_loss": trainer.best_val_loss,
-        "final_epoch": trainer.current_epoch,
-        "sagemaker_pipeline_run_id": pipeline_run_id
-    })
-    wandb.finish()
+    # Log final metrics (skip in test environments)
+    if not os.getenv("SKIP_WANDB", "false").lower() == "true":
+        wandb.log({
+            "final_val_loss": trainer.best_val_loss,
+            "final_epoch": trainer.current_epoch,
+            "sagemaker_pipeline_run_id": pipeline_run_id
+        })
+        wandb.finish()
