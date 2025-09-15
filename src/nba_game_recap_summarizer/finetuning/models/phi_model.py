@@ -304,10 +304,23 @@ class PhiRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Load checkpoint directly from S3 or local path
-            checkpoint = PhiRecapSummarizationModel.load_model_from_checkpoint(checkpoint_path)
+            # Load checkpoint data directly
+            checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
+            hparams = checkpoint_data.get("hyper_parameters", {})
+
+            # Create model with same parameters as training
+            model = PhiRecapSummarizationModel(
+                model_name=hparams.get("model_name", model_name or "microsoft/Phi-3.5-mini-instruct"),
+                model_type=model_type or "phi",
+                use_quantization=hparams.get("use_quantization", True),
+                quantization_type=hparams.get("quantization_type", "4bit"),
+                peft_method=hparams.get("peft_method", peft_method),
+            )
+
+            # Load state dict with strict=False to ignore quantization metadata
+            model.load_state_dict(checkpoint_data["state_dict"], strict=False)
             logger.success("Model restored successfully from checkpoint")
-            return checkpoint
+            return model
 
         except Exception as e:
             # If loading fails due to quantization metadata mismatch, try loading with strict=False
