@@ -306,7 +306,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
             )
 
             # Load state dict with strict=False to ignore quantization metadata
-            model.load_state_dict(checkpoint_data["state_dict"], strict=False)
+            model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
             logger.success("Model restored successfully from checkpoint")
             return model
 
@@ -329,7 +329,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                     )
                     
                     # Load state dict with strict=False to ignore quantization metadata
-                    model.load_state_dict(checkpoint_data["state_dict"], strict=False)
+                    model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
                     logger.success("Model restored successfully from checkpoint with strict=False")
                     return model
                     
