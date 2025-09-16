@@ -1,4 +1,5 @@
 import datetime
+import os
 import platform
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -345,51 +346,12 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
             logger.debug(f"Error in fallback sample prediction: {e}")
 
 
-    def _log_final_hard_examples_summary(self):
-        """Log a final summary of hard examples and data quality filtering."""
-        try:
-            logger.info("="*80)
-            logger.info("📊 TRAINING SUMMARY - DATA QUALITY & HARD EXAMPLES")
-            logger.info("="*80)
-            
-            # Data quality filtering summary
-            logger.info("🧹 DATA QUALITY FILTERING APPLIED:")
-            logger.info("  - Removed very short summaries (< 10 words)")
-            logger.info("  - Removed very short recaps (< 50 words)")
-            logger.info("  - Removed extreme length ratios")
-            logger.info("  - Removed HTML contamination")
-            logger.info("  - Removed corrupted content")
-            logger.info("  - Removed duplicate recaps")
-            logger.info("  - Removed score-only summaries")
-            
-            # Show actual filtering statistics from our preprocessing run
-            logger.info(f"\n📊 FILTERING STATISTICS:")
-            logger.info(f"  - Initial samples: 4,775")
-            logger.info(f"  - Removed samples: 191 (4.0%)")
-            logger.info(f"  - Final samples: 4,584")
-            logger.info(f"  - Breakdown of removed samples:")
-            logger.info(f"    • Very short summaries (< 10 words): 8")
-            logger.info(f"    • Very short recaps (< 50 words): 13")
-            logger.info(f"    • Extreme length ratios: 5")
-            logger.info(f"    • HTML contamination: 2")
-            logger.info(f"    • Duplicate recaps: 160")
-            logger.info(f"    • Score-only summaries: 3")
-            
-            # Hard examples summary
-                
-            logger.info("="*80)
-            
-        except Exception as e:
-            logger.debug(f"Error in final hard examples summary: {e}")
-
     def on_fit_end(self):
         try:
             if self.trainer is not None:
                 # If present, keep whatever we last logged; otherwise set a safe default
                 val = self.trainer.callback_metrics.get("val_loss", torch.tensor(0.0))
                 self.trainer.callback_metrics["val_loss"] = val
-                
-                # Log final hard examples summary
         except Exception:
             pass
 
