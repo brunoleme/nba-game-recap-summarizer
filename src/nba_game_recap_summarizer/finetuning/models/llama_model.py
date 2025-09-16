@@ -282,13 +282,33 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Load checkpoint directly from S3 or local path
-            checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
+            # Load checkpoint data directly
+            checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
+            hparams = checkpoint_data.get("hyper_parameters", {})
 
-            # The checkpoint is already fully loaded with model, tokenizer, and state
-            # Just return it directly instead of creating a new instance
+            # Create model with same parameters as training
+            model = LlamaRecapSummarizationModel(
+                model_name=hparams.get("model_name", model_name or "meta-llama/Llama-3.2-1B-Instruct"),
+                model_type=model_type or "llama",
+                use_quantization=hparams.get("use_quantization", True),
+                quantization_type=hparams.get("quantization_type", "4bit"),
+                peft_method=hparams.get("peft_method", peft_method),
+                lora_r=hparams.get("lora_r", 16),
+                lora_alpha=hparams.get("lora_alpha", 32),
+                lora_dropout=hparams.get("lora_dropout", 0.1),
+            )
+
+            # Check if this is a LoRA-only checkpoint
+            if "lora_state_dict" in checkpoint_data:
+                logger.info("Loading LoRA-only checkpoint")
+                # Load LoRA weights directly into the PEFT model
+                model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+            else:
+                # Load full model state dict
+                model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
+            
             logger.success("Model restored successfully from checkpoint")
-            return checkpoint
+            return model
 
         except Exception as e:
             # If loading fails due to quantization metadata mismatch, try loading with strict=False
@@ -306,10 +326,18 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         use_quantization=hparams.get("use_quantization", True),
                         quantization_type=hparams.get("quantization_type", "4bit"),
                         peft_method=hparams.get("peft_method", peft_method),
+                        lora_r=hparams.get("lora_r", 16),
+                        lora_alpha=hparams.get("lora_alpha", 32),
+                        lora_dropout=hparams.get("lora_dropout", 0.1),
                     )
                     
-                    # Load state dict with strict=False to ignore quantization metadata
-                    model.load_state_dict(checkpoint_data["state_dict"], strict=False)
+                    # Check if this is a LoRA-only checkpoint
+                    if "lora_state_dict" in checkpoint_data:
+                        logger.info("Loading LoRA-only checkpoint with strict=False")
+                        model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+                    else:
+                        # Load full model state dict with strict=False
+                        model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
                     logger.success("Model restored successfully from checkpoint with strict=False")
                     return model
                     

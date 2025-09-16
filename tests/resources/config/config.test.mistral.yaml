@@ -1,0 +1,64 @@
+project_name: "nba-recap-finetune-test"
+
+logging:
+  log_path: "logs"
+
+model:
+  type: "mistral"
+  name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Use TinyLlama for testing (Mistral-compatible)
+  quantization: false
+  quantization_type: "4bit"
+  peft_method: "lora"
+  max_length: 64  # Very small context for ultra-fast testing
+
+lora:
+  r: 4  # Reduced for testing
+  alpha: 4
+  dropout: 0.1
+  prompt_tuning_n_tokens: 10
+
+training:
+  batch_size: 1
+  accumulate_grad_batches: 1
+  learning_rate: 1e-4  # Higher for faster convergence in tests
+  warmup_steps: 5
+  weight_decay: 0.0
+  patience: 2
+  gradient_clip_val: 1.0
+  max_epochs: 1  # Single epoch for testing
+  num_workers: 0  # No multiprocessing for tests
+  model_artifact_dir: "tests/resources/artifacts"
+  devices: "auto"
+  precision: "16-mixed"
+  gradient_checkpointing: false  # Disabled for testing
+  # Learning rate scheduling
+  lr_scheduler:
+    name: "linear_warmup"
+    T_max: 1
+    eta_min: 1e-5
+    step_size: 1
+    gamma: 0.5
+
+data:
+  train_samples: 5  # Very small for testing
+  val_samples: 2
+  test_samples: 2
+  shuffle: true
+  shuffle_seed: 42
+  shuffle_buffer_size: 10
+  source_data_folder: "tests/resources/source_data"
+  source_data_path: "game_recaps_with_summaries_sample.csv"
+  preprocessed_output_data_folder: "tests/resources/preprocessed"
+  preprocessed_input_data_folder: "tests/resources/preprocessed"
+  # Data quality filtering settings
+  apply_quality_filters: false  # Disabled for testing
+  min_summary_length: 5
+  min_recap_length: 20
+  max_length_ratio: 0.9
+  min_length_ratio: 0.1
+
+evaluation:
+  model_artifact_dir: "tests/resources/artifacts"
+  test_samples_lexical_metrics: 2
+  test_samples_semantic_metrics: 2
+  test_samples_ai_as_judge_metrics: 1

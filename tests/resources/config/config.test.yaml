@@ -5,7 +5,7 @@ logging:
 
 model:
   type: "llama"
-  name: "hf-internal-testing/tiny-random-LlamaForCausalLM"
+  name: "hf-internal-testing/tiny-random-LlamaForCausalLM"  # Keep tiny LLaMA for fast unit tests
   quantization: false
   quantization_type: "4bit"
   peft_method: "lora"
