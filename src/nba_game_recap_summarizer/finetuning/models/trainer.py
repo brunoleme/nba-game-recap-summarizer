@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 import wandb
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from accelerate import Accelerator
 
 
 class SummarizationModelTrainer:
@@ -21,6 +22,10 @@ class SummarizationModelTrainer:
         # Setup training
         self.model.setup_training()
         
+        # Setup Accelerate for multi-GPU training
+        self.accelerator = Accelerator()
+        self.device = self.accelerator.device
+        
         # Get optimizer and scheduler
         num_training_steps = len(dataloaders['train']) * config.training.max_epochs
         self.optimizer, self.scheduler = model.get_optimizer_and_scheduler(
@@ -28,14 +33,15 @@ class SummarizationModelTrainer:
             lr_scheduler_config=config.training.get('lr_scheduler', {})
         )
         
-        # Setup device
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        
         # Training state
         self.current_epoch = 0
         self.best_val_loss = float('inf')
         self.patience_counter = 0
+        
+        # Prepare model, optimizer, and dataloaders with Accelerate
+        self.model, self.optimizer, self.dataloaders['train'], self.dataloaders['val'] = self.accelerator.prepare(
+            self.model, self.optimizer, self.dataloaders['train'], self.dataloaders['val']
+        )
         
         logger.info(f"Training on device: {self.device}")
         if torch.cuda.is_available():
@@ -49,22 +55,21 @@ class SummarizationModelTrainer:
         num_batches = 0
         
         for batch_idx, batch in enumerate(self.dataloaders['train']):
-            # Move batch to device
-            batch = {k: v.to(self.device) for k, v in batch.items()}
-            
-            # Forward pass
-            self.optimizer.zero_grad()
-            loss = self.model.compute_loss(batch)
-            
-            # Backward pass
-            loss.backward()
-            
-            # Gradient clipping
-            if hasattr(self.config.training, 'gradient_clip_val'):
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.training.gradient_clip_val)
-            
-            self.optimizer.step()
-            self.scheduler.step()
+            # Forward pass with Accelerate
+            with self.accelerator.accumulate(self.model):
+                loss = self.model.compute_loss(batch)
+                
+                # Backward pass
+                self.accelerator.backward(loss)
+                
+                # Gradient clipping
+                if hasattr(self.config.training, 'gradient_clip_val'):
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.config.training.gradient_clip_val)
+                
+                # Optimizer step
+                self.optimizer.step()
+                self.scheduler.step()
+                self.optimizer.zero_grad()
             
             # Update metrics
             total_loss += loss.item()
@@ -90,8 +95,7 @@ class SummarizationModelTrainer:
         
         with torch.no_grad():
             for batch_idx, batch in enumerate(self.dataloaders['val']):
-                # Move batch to device
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                # Accelerate handles device placement automatically
                 
                 # Compute metrics
                 metrics = self.model.compute_validation_metrics(batch, batch_idx)
