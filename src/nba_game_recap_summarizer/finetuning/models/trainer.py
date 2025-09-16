@@ -120,32 +120,60 @@ class SummarizationModelTrainer:
         }
 
     def save_checkpoint(self, checkpoint_path: str, is_best: bool = False):
-        """Save model checkpoint."""
-        checkpoint = {
-            'epoch': self.current_epoch,
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'best_val_loss': self.best_val_loss,
-            'hyper_parameters': {
-                'model_name': self.model.model_name,
-                'model_type': self.model.model_type,
-                'learning_rate': self.model.learning_rate,
-                'warmup_steps': self.model.warmup_steps,
-                'weight_decay': self.model.weight_decay,
-                'use_quantization': self.model.use_quantization,
-                'quantization_type': self.model.quantization_type,
-                'peft_method': self.model.peft_method,
-            }
-        }
-        
-        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-        torch.save(checkpoint, checkpoint_path)
-        
+        """Save model checkpoint - LoRA-only during training, full model for best."""
         if is_best:
-            best_path = checkpoint_path.replace('.ckpt', '_best.ckpt')
-            torch.save(checkpoint, best_path)
-            logger.info(f"Best model saved to {best_path}")
+            # Save full model for best checkpoint (needed for evaluation)
+            checkpoint = {
+                'epoch': self.current_epoch,
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'scheduler_state_dict': self.scheduler.state_dict(),
+                'best_val_loss': self.best_val_loss,
+                'hyper_parameters': {
+                    'model_name': self.model.model_name,
+                    'model_type': self.model.model_type,
+                    'learning_rate': self.model.learning_rate,
+                    'warmup_steps': self.model.warmup_steps,
+                    'weight_decay': self.model.weight_decay,
+                    'use_quantization': self.model.use_quantization,
+                    'quantization_type': self.model.quantization_type,
+                    'peft_method': self.model.peft_method,
+                }
+            }
+            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+            torch.save(checkpoint, checkpoint_path)
+            logger.info(f"Best model saved to {checkpoint_path}")
+        else:
+            # Save only LoRA adapter weights for regular checkpoints
+            if hasattr(self.model, 'peft_config'):
+                lora_checkpoint = {
+                    'epoch': self.current_epoch,
+                    'lora_state_dict': self.model.peft_model.state_dict(),
+                    'best_val_loss': self.best_val_loss,
+                    'hyper_parameters': {
+                        'model_name': self.model.model_name,
+                        'model_type': self.model.model_type,
+                        'peft_method': self.model.peft_method,
+                    }
+                }
+                os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+                torch.save(lora_checkpoint, checkpoint_path)
+                logger.info(f"LoRA checkpoint saved to {checkpoint_path}")
+            else:
+                # Fallback to full checkpoint if no LoRA
+                checkpoint = {
+                    'epoch': self.current_epoch,
+                    'model_state_dict': self.model.state_dict(),
+                    'best_val_loss': self.best_val_loss,
+                    'hyper_parameters': {
+                        'model_name': self.model.model_name,
+                        'model_type': self.model.model_type,
+                        'peft_method': self.model.peft_method,
+                    }
+                }
+                os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+                torch.save(checkpoint, checkpoint_path)
+                logger.info(f"Fallback checkpoint saved to {checkpoint_path}")
 
     def train(self):
         """Main training loop."""

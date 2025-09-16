@@ -37,9 +37,6 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
         self.quantization_type = quantization_type
         self.peft_method = peft_method
         
-        # Hard example tracking
-        self.hard_examples = []  # Store (loss, input, prediction, reference)
-        self.max_hard_examples = 10  # Track top 10 hardest examples
         
         # Memory management
         self._memory_optimization_enabled = True
@@ -196,8 +193,10 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
         metrics = {"val_loss": loss.item()}
         
         # Calculate ROUGE score for a subset of validation samples
+        # Only run ROUGE evaluation in debug mode
+        debug_mode = os.getenv('DEBUG_ROUGE', 'false').lower() == 'true'
         rouge_frequency = getattr(self, 'rouge_eval_frequency', 10)
-        if batch_idx % rouge_frequency == 0 and hasattr(self, 'tokenizer'):
+        if debug_mode and batch_idx % rouge_frequency == 0 and hasattr(self, 'tokenizer'):
             try:
                 # Generate predictions for ROUGE evaluation
                 predictions, references = self._generate_predictions_for_eval(batch)
@@ -205,9 +204,6 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
                     rouge_score = self._calculate_rouge_score(predictions, references)
                     metrics["val_rouge_1_2"] = rouge_score
                     logger.info(f"Validation ROUGE-1/2 Score: {rouge_score:.4f}")
-                    
-                    # Track hard examples (high loss cases)
-                    self._track_hard_examples(batch, loss, predictions, references)
             except Exception as e:
                 logger.debug(f"ROUGE calculation failed for batch {batch_idx}: {e}")
         
@@ -348,61 +344,6 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
         except Exception as e:
             logger.debug(f"Error in fallback sample prediction: {e}")
 
-    def _track_hard_examples(self, batch, loss, predictions, references):
-        """Track hard examples (high loss cases) for analysis."""
-        try:
-            if not predictions or not references:
-                return
-                
-            # Get the first sample from the batch
-            if "game_recap" in batch and "game_recap_summary" in batch:
-                game_recap = batch["game_recap"][0] if isinstance(batch["game_recap"], list) else batch["game_recap"]
-                reference = batch["game_recap_summary"][0] if isinstance(batch["game_recap_summary"], list) else batch["game_recap_summary"]
-                prediction = predictions[0] if predictions else ""
-                
-                # Store this example
-                example = {
-                    'loss': float(loss.detach().cpu()),
-                    'input': str(game_recap)[:200] + "..." if len(str(game_recap)) > 200 else str(game_recap),
-                    'prediction': str(prediction),
-                    'reference': str(reference)[:200] + "..." if len(str(reference)) > 200 else str(reference),
-                    'input_length': len(str(game_recap)),
-                    'prediction_length': len(str(prediction)),
-                    'reference_length': len(str(reference))
-                }
-                
-                # Add to hard examples list
-                self.hard_examples.append(example)
-                
-                # Keep only the hardest examples (highest loss)
-                self.hard_examples.sort(key=lambda x: x['loss'], reverse=True)
-                if len(self.hard_examples) > self.max_hard_examples:
-                    self.hard_examples = self.hard_examples[:self.max_hard_examples]
-                    
-        except Exception as e:
-            logger.debug(f"Error tracking hard examples: {e}")
-
-    def _log_hard_examples(self):
-        """Log the hardest examples found during validation."""
-        try:
-            if not self.hard_examples:
-                logger.info("🔥 NO HARD EXAMPLES TRACKED THIS EPOCH")
-                return
-                
-            current_epoch = self.trainer.current_epoch if self.trainer else 0
-            logger.info(f"🔥 EPOCH {current_epoch} HARDEST EXAMPLES (highest loss):")
-            logger.info("="*80)
-            
-            for i, example in enumerate(self.hard_examples[:5]):  # Show top 5
-                logger.info(f"📝 HARD EXAMPLE {i+1} (Loss: {example['loss']:.4f}):")
-                logger.info(f"   Input: {example['input']}")
-                logger.info(f"   🤖 Generated: {example['prediction']}")
-                logger.info(f"   📖 Reference: {example['reference']}")
-                logger.info(f"   📊 Lengths - Input: {example['input_length']}, Pred: {example['prediction_length']}, Ref: {example['reference_length']}")
-                logger.info("-" * 60)
-                
-        except Exception as e:
-            logger.debug(f"Error logging hard examples: {e}")
 
     def _log_final_hard_examples_summary(self):
         """Log a final summary of hard examples and data quality filtering."""
@@ -435,26 +376,6 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
             logger.info(f"    • Score-only summaries: 3")
             
             # Hard examples summary
-            if self.hard_examples:
-                logger.info(f"\n🔥 HARD EXAMPLES TRACKED: {len(self.hard_examples)} total")
-                if len(self.hard_examples) > 0:
-                    avg_loss = sum(ex['loss'] for ex in self.hard_examples) / len(self.hard_examples)
-                    max_loss = max(ex['loss'] for ex in self.hard_examples)
-                    min_loss = min(ex['loss'] for ex in self.hard_examples)
-                    logger.info(f"  - Average loss: {avg_loss:.4f}")
-                    logger.info(f"  - Max loss: {max_loss:.4f}")
-                    logger.info(f"  - Min loss: {min_loss:.4f}")
-                    
-                    # Show top 3 hardest examples
-                    logger.info(f"\n🔥 TOP 3 HARDEST EXAMPLES:")
-                    for i, example in enumerate(self.hard_examples[:3]):
-                        logger.info(f"  {i+1}. Loss: {example['loss']:.4f}")
-                        logger.info(f"     Input: {example['input'][:100]}...")
-                        logger.info(f"     Generated: {example['prediction'][:100]}...")
-                        logger.info(f"     Reference: {example['reference'][:100]}...")
-                        logger.info("")
-            else:
-                logger.info("\n🔥 NO HARD EXAMPLES TRACKED (validation may not have run)")
                 
             logger.info("="*80)
             
@@ -469,7 +390,6 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
                 self.trainer.callback_metrics["val_loss"] = val
                 
                 # Log final hard examples summary
-                self._log_final_hard_examples_summary()
         except Exception:
             pass
 
