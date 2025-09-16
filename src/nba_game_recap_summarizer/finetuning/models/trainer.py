@@ -148,7 +148,7 @@ class SummarizationModelTrainer:
             if hasattr(self.model, 'peft_config'):
                 lora_checkpoint = {
                     'epoch': self.current_epoch,
-                    'lora_state_dict': self.model.peft_model.state_dict(),
+                    'lora_state_dict': self.model.state_dict(),
                     'best_val_loss': self.best_val_loss,
                     'hyper_parameters': {
                         'model_name': self.model.model_name,

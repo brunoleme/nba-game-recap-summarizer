@@ -315,8 +315,8 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
             # Check if this is a LoRA-only checkpoint
             if "lora_state_dict" in checkpoint_data:
                 logger.info("Loading LoRA-only checkpoint")
-                # Load LoRA weights
-                model.peft_model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+                # Load LoRA weights directly into the PEFT model
+                model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
             else:
                 # Load full model state dict
                 model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
