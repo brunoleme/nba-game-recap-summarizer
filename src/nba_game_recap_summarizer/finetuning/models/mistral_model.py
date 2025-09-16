@@ -56,7 +56,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                 logger.info(f"Initializing Mistral with: {name}, quantization: {self.quantization_type}")
                 model = AutoModelForCausalLM.from_pretrained(
                     name,
-                    device_map="auto",
+                    device_map="auto",  # Distribute across all GPUs
                     quantization_config=self.quantization_config,
                     torch_dtype="auto",
                 )
@@ -66,7 +66,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                 logger.info(f"Initializing Mistral with: {name}, no quantization")
                 model = AutoModelForCausalLM.from_pretrained(
                     name,
-                    device_map="auto" if torch.cuda.is_available() else "cpu",
+                    device_map="auto" if torch.cuda.is_available() else "cpu",  # Distribute across all GPUs
                     torch_dtype="auto",
                 )
         except ImportError as e:
