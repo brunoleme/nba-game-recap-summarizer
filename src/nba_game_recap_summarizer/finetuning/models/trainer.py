@@ -138,6 +138,9 @@ class SummarizationModelTrainer:
                     'use_quantization': self.model.use_quantization,
                     'quantization_type': self.model.quantization_type,
                     'peft_method': self.model.peft_method,
+                    'lora_r': self.model.peft_config.r if hasattr(self.model, 'peft_config') and self.model.peft_config else None,
+                    'lora_alpha': self.model.peft_config.lora_alpha if hasattr(self.model, 'peft_config') and self.model.peft_config else None,
+                    'lora_dropout': self.model.peft_config.lora_dropout if hasattr(self.model, 'peft_config') and self.model.peft_config else None,
                 }
             }
             os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
@@ -154,6 +157,11 @@ class SummarizationModelTrainer:
                         'model_name': self.model.model_name,
                         'model_type': self.model.model_type,
                         'peft_method': self.model.peft_method,
+                        'use_quantization': self.model.use_quantization,
+                        'quantization_type': self.model.quantization_type,
+                        'lora_r': self.model.peft_config.r if hasattr(self.model, 'peft_config') and self.model.peft_config else None,
+                        'lora_alpha': self.model.peft_config.lora_alpha if hasattr(self.model, 'peft_config') and self.model.peft_config else None,
+                        'lora_dropout': self.model.peft_config.lora_dropout if hasattr(self.model, 'peft_config') and self.model.peft_config else None,
                     }
                 }
                 os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)

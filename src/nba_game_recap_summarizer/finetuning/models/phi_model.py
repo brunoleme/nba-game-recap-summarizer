@@ -315,6 +315,9 @@ class PhiRecapSummarizationModel(BaseRecapSummarizationModel):
                 use_quantization=hparams.get("use_quantization", True),
                 quantization_type=hparams.get("quantization_type", "4bit"),
                 peft_method=hparams.get("peft_method", peft_method),
+                lora_r=hparams.get("lora_r", 16),
+                lora_alpha=hparams.get("lora_alpha", 32),
+                lora_dropout=hparams.get("lora_dropout", 0.1),
             )
 
             # Check if this is a LoRA-only checkpoint
@@ -345,6 +348,9 @@ class PhiRecapSummarizationModel(BaseRecapSummarizationModel):
                         use_quantization=hparams.get("use_quantization", True),
                         quantization_type=hparams.get("quantization_type", "4bit"),
                         peft_method=hparams.get("peft_method", peft_method),
+                        lora_r=hparams.get("lora_r", 16),
+                        lora_alpha=hparams.get("lora_alpha", 32),
+                        lora_dropout=hparams.get("lora_dropout", 0.1),
                     )
                     
                     # Check if this is a LoRA-only checkpoint
