@@ -12,22 +12,22 @@ model:
   max_length: 4096  # Increased for G5 A10G (24GB VRAM)
 
 lora:
-  r: 16  # Increased for G5 A10G (24GB VRAM)
+  r: 16  # Increased for A100 40GB VRAM
   alpha: 32  # Increased proportionally with r
   dropout: 0.1
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 4  # Increased for G5 A10G (24GB VRAM)
+  batch_size: 4  # Increased for A100 40GB VRAM
   accumulate_grad_batches: 4  # Effective batch size = 4 * 4 = 16
   learning_rate: 2e-5  # Keep same learning rate
   warmup_steps: 100  # Keep same warmup
   weight_decay: 0.01  # Keep regularization
   patience: 5  # Keep patience
-  precision: "16-mixed"        # Mixed precision for V100
+  precision: "16-mixed"        # Mixed precision for memory savings
   gradient_clip_val: 1.0
   max_epochs: 5  # Keep epochs
-  num_workers: 2  # Reduced for memory savings
+  num_workers: 4  # Increased for single GPU
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true  # Critical for memory savings

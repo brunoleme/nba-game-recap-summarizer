@@ -82,10 +82,9 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
             logger.info(f"Applying PEFT: {peft_method}")
             model = get_peft_model(model, self.peft_config)
 
-        # Use DataParallel to utilize all available GPUs
-        if torch.cuda.is_available() and torch.cuda.device_count() > 1:
-            logger.info(f"Using DataParallel with {torch.cuda.device_count()} GPUs")
-            model = torch.nn.DataParallel(model)
+        # Use single GPU for efficiency (DataParallel is too slow for large models)
+        # For multi-GPU training, consider DistributedDataParallel (DDP) instead
+        logger.info(f"Using single GPU training (cuda:0) for efficiency")
 
         return model, tokenizer
 
