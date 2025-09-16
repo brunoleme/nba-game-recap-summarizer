@@ -295,8 +295,15 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                 peft_method=hparams.get("peft_method", peft_method),
             )
 
-            # Load state dict with strict=False to ignore quantization metadata
-            model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
+            # Check if this is a LoRA-only checkpoint
+            if "lora_state_dict" in checkpoint_data:
+                logger.info("Loading LoRA-only checkpoint")
+                # Load LoRA weights directly into the PEFT model
+                model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+            else:
+                # Load full model state dict
+                model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
+            
             logger.success("Model restored successfully from checkpoint")
             return model
 
@@ -318,8 +325,13 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         peft_method=hparams.get("peft_method", peft_method),
                     )
                     
-                    # Load state dict with strict=False to ignore quantization metadata
-                    model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
+                    # Check if this is a LoRA-only checkpoint
+                    if "lora_state_dict" in checkpoint_data:
+                        logger.info("Loading LoRA-only checkpoint with strict=False")
+                        model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+                    else:
+                        # Load full model state dict with strict=False
+                        model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
                     logger.success("Model restored successfully from checkpoint with strict=False")
                     return model
                     
