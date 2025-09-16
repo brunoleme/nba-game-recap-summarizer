@@ -56,7 +56,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                 logger.info(f"Initializing Mistral with: {name}, quantization: {self.quantization_type}")
                 model = AutoModelForCausalLM.from_pretrained(
                     name,
-                    device_map="auto",  # Distribute across all GPUs
+                    device_map="cuda:0",  # Load on first GPU, then use DataParallel
                     quantization_config=self.quantization_config,
                     torch_dtype="auto",
                 )
@@ -66,7 +66,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                 logger.info(f"Initializing Mistral with: {name}, no quantization")
                 model = AutoModelForCausalLM.from_pretrained(
                     name,
-                    device_map="auto" if torch.cuda.is_available() else "cpu",  # Distribute across all GPUs
+                    device_map="cuda:0" if torch.cuda.is_available() else "cpu",  # Load on first GPU, then use DataParallel
                     torch_dtype="auto",
                 )
         except ImportError as e:
@@ -81,6 +81,11 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
         if peft_method and self.peft_config:
             logger.info(f"Applying PEFT: {peft_method}")
             model = get_peft_model(model, self.peft_config)
+
+        # Use DataParallel to utilize all available GPUs
+        if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+            logger.info(f"Using DataParallel with {torch.cuda.device_count()} GPUs")
+            model = torch.nn.DataParallel(model)
 
         return model, tokenizer
 

@@ -49,8 +49,8 @@ class SummarizationModelTrainer:
         num_batches = 0
         
         for batch_idx, batch in enumerate(self.dataloaders['train']):
-            # Move batch to the model's device (handles multi-GPU automatically)
-            batch = {k: v.to(next(self.model.parameters()).device) for k, v in batch.items()}
+            # Move batch to device
+            batch = {k: v.to(self.device) for k, v in batch.items()}
             
             # Forward pass
             self.optimizer.zero_grad()
@@ -90,8 +90,8 @@ class SummarizationModelTrainer:
         
         with torch.no_grad():
             for batch_idx, batch in enumerate(self.dataloaders['val']):
-                # Move batch to the model's device (handles multi-GPU automatically)
-                batch = {k: v.to(next(self.model.parameters()).device) for k, v in batch.items()}
+                # Move batch to device
+                batch = {k: v.to(self.device) for k, v in batch.items()}
                 
                 # Compute metrics
                 metrics = self.model.compute_validation_metrics(batch, batch_idx)
