@@ -45,7 +45,7 @@ jobs:
   trigger-sagemaker:
     runs-on: ubuntu-latest
     needs: [build-and-push-training]
-    timeout-minutes: 480  # 8 hours timeout (training + evaluation can take longer)
+    timeout-minutes: 720  # 12 hours timeout (staging with real data takes longer)
     outputs:
       pipeline_run_id: ${{ steps.meta.outputs.pipeline_run_id }}
       model_path:      ${{ steps.meta.outputs.model_path }}
