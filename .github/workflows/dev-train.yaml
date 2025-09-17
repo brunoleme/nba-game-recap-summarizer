@@ -16,7 +16,7 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
   HUGGINGFACEHUB_API_TOKEN: ${{ secrets.HF_TOKEN }}
   PREPROCESSING_INSTANCE_TYPE: ml.m5.large
-  TRAINING_INSTANCE_TYPE: ml.g5.12xlarge
+  TRAINING_INSTANCE_TYPE: ml.g5.xlarge
   EVALUATION_INSTANCE_TYPE: ml.g5.xlarge
   DEPLOYMENT_INSTANCE_TYPE: ml.g4dn.xlarge
   BASE_IMAGE: 763104351884.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/pytorch-inference:2.0.1-gpu-py310-cu118-ubuntu20.04-sagemaker

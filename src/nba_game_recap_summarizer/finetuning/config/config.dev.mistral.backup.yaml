@@ -4,33 +4,33 @@ logging:
   log_path: "logs"
 
 model:
-  type: "llama"
-  name: "meta-llama/Llama-3.2-1B-Instruct"
-  quantization: true  # Keep quantization for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
+  type: "mistral"
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
+  quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # LLaMA-3.2-1B works well with 2048 context
+  max_length: 2048  # Mistral-7B supports longer contexts
 
 lora:
-  r: 8  # Moderate for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
-  alpha: 16  # Proportional to r
-  dropout: 0.05  # Lower dropout for smaller model
+  r: 8
+  alpha: 8
+  dropout: 0.1
   prompt_tuning_n_tokens: 20
 
 training:
-  batch_size: 2  # Conservative for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
-  accumulate_grad_batches: 8  # Effective batch size = 2 * 8 = 16
-  learning_rate: 2e-5  # Good learning rate for LLaMA
-  warmup_steps: 50  # Reduced for smaller model
-  weight_decay: 0.01  # Keep regularization
-  patience: 3  # Reduced patience for faster iteration
-  precision: "16-mixed"        # Mixed precision for memory savings
+  batch_size: 1  # Conservative for Mistral-7B on P3 V100 GPU (32GB VRAM)
+  accumulate_grad_batches: 8  # Effective batch size = 1 * 8 = 8
+  learning_rate: 1e-5
+  warmup_steps: 50  # Reduced for small dataset
+  weight_decay: 0.0
+  patience: 3
+  precision: "16-mixed"        # Mixed precision for memory efficiency
   gradient_clip_val: 1.0
-  max_epochs: 5  # Keep epochs
-  num_workers: 2  # Reduced for smaller model
+  max_epochs: 3
+  num_workers: 2  # Reduced to save memory
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
-  gradient_checkpointing: true  # Critical for memory savings
+  gradient_checkpointing: true  # Enabled to save memory
   sync_batchnorm: false  # Disable for memory savings
   deterministic: false  # Disable for memory savings
   benchmark: false  # Disable for memory savings
@@ -66,4 +66,3 @@ evaluation:
   test_samples_lexical_metrics: 5
   test_samples_semantic_metrics: 5
   test_samples_ai_as_judge_metrics: 2
-  

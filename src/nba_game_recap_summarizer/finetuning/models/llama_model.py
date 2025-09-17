@@ -7,6 +7,11 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from .base_model import BaseRecapSummarizationModel
+from ..utils.tokenization_utils import (
+    preprocess_text, 
+    postprocess_text, 
+    add_custom_tokens_to_tokenizer
+)
 
 
 class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
@@ -50,8 +55,8 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             tokenizer.pad_token = tokenizer.eos_token
         tokenizer.padding_side = "left"
 
-        # DO NOT add arbitrary special tokens by default for LLaMA.
-        # If you truly need your XML-like tags, you can add them, but then call model.resize_token_embeddings.
+        # Add custom NBA tokens for better performance
+        tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
 
         try:
             if use_quantization and self.quantization_config:
@@ -109,11 +114,14 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info("Generating game recap summary(LLaMA)")
         logger.debug(f"Input game_recap length: {len(game_recap)}")
 
+        # Preprocess the input text for better tokenization
+        preprocessed_recap = preprocess_text(game_recap)
+
         # Use plain delimiters to avoid changing tokenizer vocab
         prompt = (
             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
             "### NBA Game Recap ###\n"
-            f"{game_recap}\n\n"
+            f"{preprocessed_recap}\n\n"
             "### Recap Summary ###\n"
         )
 
@@ -125,20 +133,23 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             out = self.model.generate(
                 **enc,
                 max_new_tokens=max_length,
-                do_sample=False,
-                temperature=None,
-                top_p=None,
-                top_k=None,
+                do_sample=True,           # Enable sampling for better quality
+                temperature=0.7,          # Add randomness to avoid repetition
+                top_p=0.9,               # Nucleus sampling
+                top_k=50,                # Limit vocabulary for better quality
                 typical_p=None,
                 eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                 pad_token_id=self.tokenizer.pad_token_id,
-                no_repeat_ngram_size=2,  # Reduced from 3 for more flexibility
-                repetition_penalty=1.3,  # Increased from 1.1 to reduce repetition
+                no_repeat_ngram_size=0,   # Disable n-gram blocking to prevent word merging
+                repetition_penalty=1.1,   # Lower penalty to prevent word merging
             )
 
         # Strip the prompt portion
         gen_ids = out[0][enc["input_ids"].shape[1]:]
-        return self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        
+        # Postprocess the generated text to restore proper formatting
+        return postprocess_text(generated_text)
 
     # ---------- batch generation ----------
     def summarize_recaps(self, dataloader: DataLoader, max_length: Optional[int] = None) -> List[str]:
@@ -169,12 +180,14 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                     else:
                         logger.info(f"Batch {batch_idx}: Using raw text input, game_recap count: {len(batch['game_recap'])}")
                         convs: List[str] = batch["game_recap"]
+                        # Preprocess each game recap for better tokenization
+                        preprocessed_convs = [preprocess_text(c) for c in convs]
                         prompts = [
                             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
                             "### NBA Game Recap ###\n"
                             f"{c}\n\n"
                             "### Recap Summary ###\n"
-                            for c in convs
+                            for c in preprocessed_convs
                         ]
                         enc = self.tokenizer(
                             prompts,
@@ -216,15 +229,15 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         out = self.model.generate(
                             **inputs,
                             max_new_tokens=max_new_tokens,
-                            do_sample=False,
-                            temperature=None,
-                            top_p=None,
-                            top_k=None,
+                            do_sample=True,           # Enable sampling for better quality
+                            temperature=0.7,          # Add randomness to avoid repetition
+                            top_p=0.9,               # Nucleus sampling
+                            top_k=50,                # Limit vocabulary for better quality
                             typical_p=None,
                             eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                             pad_token_id=self.tokenizer.pad_token_id,
-                            no_repeat_ngram_size=2,  # Reduced from 3 for more flexibility
-                            repetition_penalty=1.3,  # Increased from 1.1 to reduce repetition
+                            no_repeat_ngram_size=0,   # Disable n-gram blocking to prevent word merging
+                            repetition_penalty=1.1,   # Lower penalty to prevent word merging
                         )
                         
                         logger.info(f"Generated output for batch {batch_idx}, shape: {out.shape}")
@@ -239,7 +252,9 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         for i in range(out.shape[0]):
                             gen_ids = out[i][prompt_lengths[i]:]
                             decoded = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
-                            results.append(decoded)
+                            # Postprocess the generated text to restore proper formatting
+                            postprocessed = postprocess_text(decoded)
+                            results.append(postprocessed)
                             logger.info(f"Batch {batch_idx}, sample {i}: Generated summary of length {len(decoded)}")
                             
                     except Exception as e:
