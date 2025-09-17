@@ -89,8 +89,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             logger.info(f"Applying PEFT: {peft_method}")
             model = get_peft_model(model, self.peft_config)
 
-        # If (and only if) you explicitly added extra tokens above, then:
-        # model.resize_token_embeddings(len(tokenizer))
+        # Resize token embeddings to accommodate custom tokens
+        if len(tokenizer) > model.get_input_embeddings().num_embeddings:
+            logger.info(f"Resizing token embeddings from {model.get_input_embeddings().num_embeddings} to {len(tokenizer)}")
+            model.resize_token_embeddings(len(tokenizer))
 
         return model, tokenizer
 

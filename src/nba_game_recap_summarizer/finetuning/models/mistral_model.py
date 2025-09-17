@@ -97,6 +97,11 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
         else:
             logger.info(f"Using single GPU training (cuda:0)")
 
+        # Resize token embeddings to accommodate custom tokens
+        if len(tokenizer) > model.get_input_embeddings().num_embeddings:
+            logger.info(f"Resizing token embeddings from {model.get_input_embeddings().num_embeddings} to {len(tokenizer)}")
+            model.resize_token_embeddings(len(tokenizer))
+
         return model, tokenizer
 
     # ---------- forward ----------
