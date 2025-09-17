@@ -51,19 +51,62 @@ async def load_model():
                     checkpoint_path=local_model_path,
                 )
         else:
-            logger.info(f"Local model not found, loading {model_type} model from S3: {settings.model_path}")
-            if model_type == "phi":
-                model = PhiRecapSummarizationModel.load_model_from_checkpoint(
-                    checkpoint_path=str(settings.model_path),
-                )
-            elif model_type == "mistral":
-                model = MistralRecapSummarizationModel.load_model_from_checkpoint(
-                    checkpoint_path=str(settings.model_path),
-                )
-            else:  # Default to LLaMA
-                model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                    checkpoint_path=str(settings.model_path),
-                )
+            # Download model from S3 first
+            s3_model_path = str(settings.model_path)
+            logger.info(f"Local model not found, downloading from S3: {s3_model_path}")
+            try:
+                import boto3
+                s3_client = boto3.client('s3')
+                
+                # Extract bucket and key from S3 path
+                s3_path_parts = s3_model_path.replace("s3://", "").split("/", 1)
+                bucket_name = s3_path_parts[0]
+                object_key = s3_path_parts[1]
+                
+                # Download model file
+                logger.info(f"Downloading model from s3://{bucket_name}/{object_key}")
+                s3_client.download_file(bucket_name, object_key, local_model_path)
+                logger.success(f"Model downloaded successfully to {local_model_path}")
+                
+                # Now load from local path
+                if model_type == "phi":
+                    model = PhiRecapSummarizationModel.load_model_from_checkpoint(
+                        checkpoint_path=local_model_path,
+                    )
+                elif model_type == "mistral":
+                    model = MistralRecapSummarizationModel.load_model_from_checkpoint(
+                        checkpoint_path=local_model_path,
+                    )
+                else:  # Default to LLaMA
+                    model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
+                        checkpoint_path=local_model_path,
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Failed to download model from S3: {e}")
+                logger.info("Falling back to Hugging Face model")
+                # Fallback to Hugging Face model
+                if model_type == "phi":
+                    model = PhiRecapSummarizationModel(
+                        model_name="microsoft/Phi-3.5-mini-instruct",
+                        use_quantization=True,
+                        quantization_type="4bit",
+                        peft_method="lora",
+                    )
+                elif model_type == "mistral":
+                    model = MistralRecapSummarizationModel(
+                        model_name="mistralai/Mistral-7B-Instruct-v0.3",
+                        use_quantization=True,
+                        quantization_type="4bit",
+                        peft_method="lora",
+                    )
+                else:  # Default to LLaMA
+                    model = LlamaRecapSummarizationModel(
+                        model_name="meta-llama/Llama-3.2-1B-Instruct",
+                        use_quantization=True,
+                        quantization_type="4bit",
+                        peft_method="lora",
+                    )
         
         logger.info(f"{model_type.upper()} model loaded successfully")
     except Exception as e:

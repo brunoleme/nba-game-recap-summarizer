@@ -299,8 +299,31 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Load checkpoint data directly
-            checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
+            # Handle S3 URLs by downloading first
+            if checkpoint_path.startswith("s3://"):
+                import boto3
+                import tempfile
+                import os
+                
+                s3_client = boto3.client('s3')
+                s3_path_parts = checkpoint_path.replace("s3://", "").split("/", 1)
+                bucket_name = s3_path_parts[0]
+                object_key = s3_path_parts[1]
+                
+                # Download to temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".ckpt") as temp_file:
+                    logger.info(f"Downloading checkpoint from s3://{bucket_name}/{object_key}")
+                    s3_client.download_file(bucket_name, object_key, temp_file.name)
+                    local_checkpoint_path = temp_file.name
+                
+                # Load from local file
+                checkpoint_data = torch.load(local_checkpoint_path, map_location="cpu")
+                
+                # Clean up temporary file
+                os.unlink(local_checkpoint_path)
+            else:
+                # Load checkpoint data directly from local path
+                checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
             hparams = checkpoint_data.get("hyper_parameters", {})
 
             # Create model with same parameters as training

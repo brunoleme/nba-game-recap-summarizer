@@ -85,6 +85,7 @@ services:
     environment:
       - ENV=${environment}
       - MODEL_PATH=${model_path}
+      - MODEL_TYPE=mistral
       - HF_TOKEN=${hf_token}
       - HUGGINGFACEHUB_API_TOKEN=${hf_token}
     restart: unless-stopped
