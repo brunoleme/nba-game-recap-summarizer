@@ -216,15 +216,21 @@ class TestModelLoading:
             mock_exists.assert_called_with("/app/models/model.ckpt")
             mock_load_model.assert_called_once_with(checkpoint_path="/app/models/model.ckpt")
     
+    @patch('boto3.client')
+    @patch('tempfile.NamedTemporaryFile')
     @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint')
     @patch('nba_game_recap_summarizer.api.inference.os.path.exists')
     @patch('nba_game_recap_summarizer.api.inference.settings')
-    def test_load_model_from_s3_path(self, mock_settings, mock_exists, mock_load_model):
+    def test_load_model_from_s3_path(self, mock_settings, mock_exists, mock_load_model, mock_tempfile, mock_boto3):
         """Test loading model from S3 path when local path doesn't exist."""
         mock_exists.return_value = False
         mock_settings.model_path = "s3://bucket/model.ckpt"
         mock_model = MagicMock()
         mock_load_model.return_value = mock_model
+        
+        # Mock S3 client
+        mock_s3_client = MagicMock()
+        mock_boto3.return_value = mock_s3_client
         
         # Create a new app instance to test startup
         test_app = FastAPI()
@@ -233,7 +239,8 @@ class TestModelLoading:
         with TestClient(test_app) as client:
             # The startup event should have been triggered
             mock_exists.assert_called_with("/app/models/model.ckpt")
-            mock_load_model.assert_called_once_with(checkpoint_path="s3://bucket/model.ckpt")
+            mock_s3_client.download_file.assert_called_once_with("bucket", "model.ckpt", "/app/models/model.ckpt")
+            mock_load_model.assert_called_once_with(checkpoint_path="/app/models/model.ckpt")
     
     @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint')
     @patch('nba_game_recap_summarizer.api.inference.os.path.exists')
