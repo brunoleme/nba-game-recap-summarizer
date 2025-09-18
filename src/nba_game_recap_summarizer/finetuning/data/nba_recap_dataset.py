@@ -27,9 +27,10 @@ class CausalLMCollator:
                 raise ValueError("Batch not tokenized: expected 'input_ids' (and 'attention_mask').")
             inputs.append(item)
 
+        # Use the tokenizer's padding_side setting instead of hardcoded "longest"
         batch = self.tokenizer.pad(
             inputs,
-            padding="longest",
+            padding=True,  # Use True to respect tokenizer.padding_side
             pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors="pt",
         )
