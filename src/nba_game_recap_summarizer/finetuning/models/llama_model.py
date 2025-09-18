@@ -48,13 +48,13 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
 
         name = model_name
 
-            # Tokenizer first (so we can pass ids to model if needed)
-            tokenizer = AutoTokenizer.from_pretrained(name, use_fast=False)
-            # LLaMA tokenizers often lack pad_token; set to eos for batching
-            if getattr(tokenizer, "pad_token", None) is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            # CRITICAL: Set padding_side to "left" for decoder-only models
-            tokenizer.padding_side = "left"
+        # Tokenizer first (so we can pass ids to model if needed)
+        tokenizer = AutoTokenizer.from_pretrained(name, use_fast=False)
+        # LLaMA tokenizers often lack pad_token; set to eos for batching
+        if getattr(tokenizer, "pad_token", None) is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        # CRITICAL: Set padding_side to "left" for decoder-only models
+        tokenizer.padding_side = "left"
 
         # Add custom NBA tokens for better performance
         tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
