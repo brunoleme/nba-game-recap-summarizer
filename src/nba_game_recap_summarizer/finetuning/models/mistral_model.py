@@ -54,6 +54,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
         # Mistral tokenizers often lack pad_token; set to eos for batching
         if getattr(tokenizer, "pad_token", None) is None:
             tokenizer.pad_token = tokenizer.eos_token
+        # CRITICAL: Set padding_side to "left" for decoder-only models
         tokenizer.padding_side = "left"
 
         # Add custom NBA tokens for better performance

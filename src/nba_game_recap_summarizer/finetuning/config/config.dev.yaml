@@ -26,7 +26,7 @@ training:
   patience: 3  # Reduced patience for faster iteration
   precision: "16-mixed"        # Mixed precision for memory savings
   gradient_clip_val: 1.0
-  max_epochs: 5  # Keep epochs
+  max_epochs: 3  # Reduced for quick testing of tokenizer fix
   num_workers: 2  # Reduced for smaller model
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"

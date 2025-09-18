@@ -26,7 +26,7 @@ training:
   patience: 3  # Reduced patience for faster iteration
   precision: "16-mixed"
   gradient_clip_val: 1.0
-  max_epochs: 8  # Keep epochs for staging
+  max_epochs: 3  # Reduced for quick testing of tokenizer fix
   num_workers: 2  # Reduced for smaller model
   # ROUGE evaluation settings
   rouge_eval_frequency: 10  # Calculate ROUGE every 10 validation batches
