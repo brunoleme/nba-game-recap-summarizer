@@ -85,12 +85,15 @@ jobs:
     - name: Deploy ECS with Terraform
       env:
         TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
+        TF_VAR_inference_image_v2_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}-candidate
         TF_VAR_model_path: ${{ steps.set-model-path.outputs.MODEL_PATH }}
         TF_VAR_aws_region: ${{ env.AWS_REGION }}
+        TF_VAR_hf_token: ${{ secrets.HF_TOKEN }}
       run: |
         cd terraform/envs/${{ github.event.inputs.environment }}
         SHORT_SHA="${GITHUB_SHA::7}"
         export TF_VAR_inference_image_uri="$ECR_REPOSITORY_URI:$SHORT_SHA"
+        export TF_VAR_inference_image_v2_uri="$ECR_REPOSITORY_URI:$SHORT_SHA-candidate"
         terraform init -reconfigure
         terraform apply -auto-approve
 
