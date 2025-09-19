@@ -9,43 +9,54 @@ model:
   quantization: true  # Keep quantization for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # LLaMA-3.2-1B works well with 2048 context
+  max_length: 1536  # Optimized for memory efficiency
 
 lora:
-  r: 8  # Moderate for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
-  alpha: 16  # Proportional to r
-  dropout: 0.05  # Lower dropout for smaller model
-  prompt_tuning_n_tokens: 20
+  r: 16  # Optimized for better performance
+  alpha: 32  # Proportional to r
+  dropout: 0.1  # Balanced dropout
+  prompt_tuning_n_tokens: 10
 
 training:
-  batch_size: 2  # Conservative for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
-  accumulate_grad_batches: 8  # Effective batch size = 2 * 8 = 16
-  learning_rate: 2e-5  # Good learning rate for LLaMA
+  batch_size: 4  # Optimized for memory efficiency
+  accumulate_grad_batches: 8  # Effective batch size = 4 * 8 = 32
+  learning_rate: 1e-5  # Lower learning rate for stability
   warmup_steps: 50  # Reduced for smaller model
   weight_decay: 0.01  # Keep regularization
-  patience: 3  # Reduced patience for faster iteration
+  patience: 5  # Increased patience for better convergence
   precision: "16-mixed"        # Mixed precision for memory savings
   gradient_clip_val: 1.0
-  max_epochs: 3  # Reduced for quick testing of tokenizer fix
+  max_epochs: 3  # Optimized for development
   num_workers: 2  # Reduced for smaller model
+  # ROUGE evaluation settings
+  rouge_eval_frequency: 20  # Calculate ROUGE every 20 validation batches
+  rouge_eval_samples: 3     # Number of samples to evaluate for ROUGE
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true  # Critical for memory savings
+  # Memory optimization settings
+  enable_model_summary: false
+  log_every_n_steps: 10
   sync_batchnorm: false  # Disable for memory savings
   deterministic: false  # Disable for memory savings
   benchmark: false  # Disable for memory savings
+  # Memory management
+  limit_train_batches: 1.0  # Use all training data
+  limit_val_batches: 1.0    # Use all validation data
+  val_check_interval: 1.0    # Check validation every epoch
+  check_val_every_n_epoch: 1 # Validate every epoch
   # Learning rate scheduling
   lr_scheduler:
     name: "linear_warmup"  # Options: linear_warmup, cosine, step
-    T_max: 3  # For cosine scheduler
+    T_max: 15  # For cosine scheduler
     eta_min: 1e-6  # For cosine scheduler
     step_size: 2  # For step scheduler
     gamma: 0.5  # For step scheduler
 
 data:
-  train_samples: 20  # Use -1 for all training data
-  val_samples: 10     # Use -1 for all validation data
-  test_samples: 10    # Use -1 for all test data
+  train_samples: 100  # Development sample size
+  val_samples: 20     # Development validation size
+  test_samples: 20    # Development test size
   shuffle: true        # Enable data shuffling for better training
   shuffle_seed: 42      # Random seed for reproducibility
   # Remove train_split, val_split, test_split - rely on train_samples, val_samples, test_samples

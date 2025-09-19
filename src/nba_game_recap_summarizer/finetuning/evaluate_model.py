@@ -191,15 +191,53 @@ def evaluate_model(cfg: DictConfig):
             "clarity": calculate_clarity,
         }
 
-        logger.info("Loading model from checkpoint")
+        logger.info("Loading model from Hugging Face format")
 
-        model_ckpt = f"{cfg.evaluation.model_artifact_dir}/{pipeline_run_id}/checkpoints/best_model.ckpt"
-
-        model_name = cfg.model.name
-        model_type = cfg.model.type
-        peft_method = cfg.model.peft_method
-
-        model = load_model(model_ckpt, model_name, model_type, device, peft_method)
+        # Try Hugging Face format first
+        hf_model_path = f"{cfg.evaluation.model_artifact_dir}/{pipeline_run_id}/hf_model"
+        
+        if os.path.exists(hf_model_path):
+            logger.info(f"Loading Hugging Face model from: {hf_model_path}")
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            tokenizer = AutoTokenizer.from_pretrained(hf_model_path)
+            model_hf = AutoModelForCausalLM.from_pretrained(
+                hf_model_path,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+            
+            # Create model wrapper based on type
+            if cfg.model.type == "phi":
+                from nba_game_recap_summarizer.finetuning.models.phi_model import PhiRecapSummarizationModel
+                model = PhiRecapSummarizationModel(
+                    model_name=hf_model_path,
+                    tokenizer=tokenizer,
+                    model=model_hf
+                )
+            elif cfg.model.type == "mistral":
+                from nba_game_recap_summarizer.finetuning.models.mistral_model import MistralRecapSummarizationModel
+                model = MistralRecapSummarizationModel(
+                    model_name=hf_model_path,
+                    tokenizer=tokenizer,
+                    model=model_hf
+                )
+            else:  # Default to LLaMA
+                from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
+                model = LlamaRecapSummarizationModel(
+                    model_name=hf_model_path,
+                    tokenizer=tokenizer,
+                    model=model_hf
+                )
+        else:
+            # Fallback to checkpoint loading
+            logger.warning(f"Hugging Face model not found at {hf_model_path}, falling back to checkpoint")
+            model_ckpt = f"{cfg.evaluation.model_artifact_dir}/{pipeline_run_id}/checkpoints/best_model.ckpt"
+            model_name = cfg.model.name
+            model_type = cfg.model.type
+            peft_method = cfg.model.peft_method
+            model = load_model(model_ckpt, model_name, model_type, device, peft_method)
         
         # Verify model device placement
         model_device = next(model.parameters()).device

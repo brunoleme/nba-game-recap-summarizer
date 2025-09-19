@@ -34,28 +34,47 @@ async def load_model():
         # Determine model type from environment or config
         model_type = os.getenv("MODEL_TYPE", "llama").lower()
         
-        # Check if model was downloaded during build time
-        local_model_path = "/app/models/model.ckpt"
+        # Check if Hugging Face model was downloaded during build time
+        local_model_path = "/app/models/hf_model"
         if os.path.exists(local_model_path):
-            logger.info(f"Loading {model_type} model from local path: {local_model_path}")
+            logger.info(f"Loading {model_type} model from Hugging Face format: {local_model_path}")
+            # Load Hugging Face format model directly
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            tokenizer = AutoTokenizer.from_pretrained(local_model_path)
+            model_hf = AutoModelForCausalLM.from_pretrained(
+                local_model_path,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+            
+            # Create model wrapper
             if model_type == "phi":
-                model = PhiRecapSummarizationModel.load_model_from_checkpoint(
-                    checkpoint_path=local_model_path,
+                model = PhiRecapSummarizationModel(
+                    model_name=local_model_path,
+                    tokenizer=tokenizer,
+                    model=model_hf
                 )
             elif model_type == "mistral":
-                model = MistralRecapSummarizationModel.load_model_from_checkpoint(
-                    checkpoint_path=local_model_path,
+                model = MistralRecapSummarizationModel(
+                    model_name=local_model_path,
+                    tokenizer=tokenizer,
+                    model=model_hf
                 )
             else:  # Default to LLaMA
-                model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                    checkpoint_path=local_model_path,
+                model = LlamaRecapSummarizationModel(
+                    model_name=local_model_path,
+                    tokenizer=tokenizer,
+                    model=model_hf
                 )
         else:
-            # Download model from S3 first
-            s3_model_path = str(settings.model_path)
+            # Download Hugging Face model from S3 first
+            s3_model_path = str(settings.model_path).replace(".ckpt", "/hf_model")
             logger.info(f"Local model not found, downloading from S3: {s3_model_path}")
             try:
                 import boto3
+                import shutil
                 s3_client = boto3.client('s3')
                 
                 # Extract bucket and key from S3 path
@@ -63,23 +82,50 @@ async def load_model():
                 bucket_name = s3_path_parts[0]
                 object_key = s3_path_parts[1]
                 
-                # Download model file
-                logger.info(f"Downloading model from s3://{bucket_name}/{object_key}")
-                s3_client.download_file(bucket_name, object_key, local_model_path)
-                logger.success(f"Model downloaded successfully to {local_model_path}")
+                # Download model directory
+                logger.info(f"Downloading Hugging Face model from s3://{bucket_name}/{object_key}")
+                # Create local directory
+                os.makedirs(local_model_path, exist_ok=True)
                 
-                # Now load from local path
+                # List and download all files in the S3 directory
+                response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=object_key)
+                for obj in response.get('Contents', []):
+                    file_key = obj['Key']
+                    local_file_path = os.path.join(local_model_path, file_key.replace(object_key, "").lstrip("/"))
+                    os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                    s3_client.download_file(bucket_name, file_key, local_file_path)
+                
+                logger.success(f"Hugging Face model downloaded successfully to {local_model_path}")
+                
+                # Now load from local path using Hugging Face format
+                from transformers import AutoTokenizer, AutoModelForCausalLM
+                import torch
+                
+                tokenizer = AutoTokenizer.from_pretrained(local_model_path)
+                model_hf = AutoModelForCausalLM.from_pretrained(
+                    local_model_path,
+                    torch_dtype=torch.float16,
+                    device_map="auto"
+                )
+                
+                # Create model wrapper
                 if model_type == "phi":
-                    model = PhiRecapSummarizationModel.load_model_from_checkpoint(
-                        checkpoint_path=local_model_path,
+                    model = PhiRecapSummarizationModel(
+                        model_name=local_model_path,
+                        tokenizer=tokenizer,
+                        model=model_hf
                     )
                 elif model_type == "mistral":
-                    model = MistralRecapSummarizationModel.load_model_from_checkpoint(
-                        checkpoint_path=local_model_path,
+                    model = MistralRecapSummarizationModel(
+                        model_name=local_model_path,
+                        tokenizer=tokenizer,
+                        model=model_hf
                     )
                 else:  # Default to LLaMA
-                    model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                        checkpoint_path=local_model_path,
+                    model = LlamaRecapSummarizationModel(
+                        model_name=local_model_path,
+                        tokenizer=tokenizer,
+                        model=model_hf
                     )
                     
             except Exception as e:
