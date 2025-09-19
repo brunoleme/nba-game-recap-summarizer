@@ -19,6 +19,16 @@ on:
         description: 'SageMaker Pipeline ID to deploy'
         required: true
         type: string
+      stable_image_tag:
+        description: 'ECR image tag for stable version (V1)'
+        required: false
+        type: string
+        default: ''
+      candidate_image_tag:
+        description: 'ECR image tag for candidate version (V2) - only used for prod canary'
+        required: false
+        type: string
+        default: ''
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -82,18 +92,35 @@ jobs:
       with:
         terraform_version: 1.6.0
 
+    - name: Set image tags
+      id: set-image-tags
+      run: |
+        # Use provided tags or fall back to commit SHA
+        STABLE_TAG="${{ github.event.inputs.stable_image_tag }}"
+        CANDIDATE_TAG="${{ github.event.inputs.candidate_image_tag }}"
+        
+        if [ -z "$STABLE_TAG" ]; then
+          STABLE_TAG="${GITHUB_SHA::7}"
+        fi
+        
+        if [ -z "$CANDIDATE_TAG" ]; then
+          CANDIDATE_TAG="${GITHUB_SHA::7}-candidate"
+        fi
+        
+        echo "STABLE_TAG=$STABLE_TAG" >> $GITHUB_OUTPUT
+        echo "CANDIDATE_TAG=$CANDIDATE_TAG" >> $GITHUB_OUTPUT
+        echo "Using stable image tag: $STABLE_TAG"
+        echo "Using candidate image tag: $CANDIDATE_TAG"
+
     - name: Deploy ECS with Terraform
       env:
-        TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}
-        TF_VAR_inference_image_v2_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}-candidate
+        TF_VAR_inference_image_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ steps.set-image-tags.outputs.STABLE_TAG }}
+        TF_VAR_inference_image_v2_uri: ${{ env.ECR_REPOSITORY_URI }}:${{ steps.set-image-tags.outputs.CANDIDATE_TAG }}
         TF_VAR_model_path: ${{ steps.set-model-path.outputs.MODEL_PATH }}
         TF_VAR_aws_region: ${{ env.AWS_REGION }}
         TF_VAR_hf_token: ${{ secrets.HF_TOKEN }}
       run: |
         cd terraform/envs/${{ github.event.inputs.environment }}
-        SHORT_SHA="${GITHUB_SHA::7}"
-        export TF_VAR_inference_image_uri="$ECR_REPOSITORY_URI:$SHORT_SHA"
-        export TF_VAR_inference_image_v2_uri="$ECR_REPOSITORY_URI:$SHORT_SHA-candidate"
         terraform init -reconfigure
         terraform apply -auto-approve
 
@@ -103,7 +130,13 @@ jobs:
         echo "Environment: ${{ github.event.inputs.environment }}"
         echo "Pipeline ID: ${{ github.event.inputs.pipeline_id }}"
         echo "Model Path: ${{ steps.set-model-path.outputs.MODEL_PATH }}"
-        echo "Image URI: ${{ env.ECR_REPOSITORY_URI }}:${{ github.sha }}"
+        echo ""
+        echo "📦 Deployed Images:"
+        echo "  Stable (V1): ${{ env.ECR_REPOSITORY_URI }}:${{ steps.set-image-tags.outputs.STABLE_TAG }}"
+        echo "  Candidate (V2): ${{ env.ECR_REPOSITORY_URI }}:${{ steps.set-image-tags.outputs.CANDIDATE_TAG }}"
         echo ""
         echo "🔗 ECS Service deployed with Application Load Balancer"
         echo "📊 Check AWS ECS Console for service status and logs"
+        if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
+          echo "🚦 Canary deployment active: 90% V1, 10% V2"
+        fi
