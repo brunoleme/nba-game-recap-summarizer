@@ -84,3 +84,11 @@ htmlcov/
 tests/resources/artifacts/staging/
 *.ckpt
 wandb_export_*.csv
+source_data.csv
+
+# Debug and temporary files
+source_data.csv
+debug_output/
+config.debug.*.yaml
+test_*.py
+final_inference_example.py

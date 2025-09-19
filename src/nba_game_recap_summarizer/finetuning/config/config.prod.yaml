@@ -4,29 +4,32 @@ logging:
   log_path: "logs"
 
 model:
-  type: "mistral"
-  name: "mistralai/Mistral-7B-Instruct-v0.3"
+  type: "llama"
+  name: "meta-llama/Llama-3.2-1B-Instruct"  # Use proven 1B model for production
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # Optimized for Mistral-7B on P3 V100 GPU
+  max_length: 1536  # Optimized for memory efficiency
 
 lora:
-  r: 16  # Increased for better performance on P3 V100
-  alpha: 32  # Increased proportionally with r
+  r: 16  # Optimized for better performance
+  alpha: 32  # Proportional to r
   dropout: 0.1
-  prompt_tuning_n_tokens: 20
+  prompt_tuning_n_tokens: 10
 
 training:
-  batch_size: 4  # Increased for P3 V100 GPU (32GB VRAM) with Mistral-7B
-  accumulate_grad_batches: 4  # Effective batch size = 4 * 4 = 16
-  learning_rate: 2e-5
-  warmup_steps: 500
+  batch_size: 4  # Optimized for memory efficiency
+  accumulate_grad_batches: 8  # Effective batch size = 4 * 8 = 32
+  learning_rate: 1e-5  # Lower learning rate for stability
+  warmup_steps: 100  # Optimized for 1B model
   weight_decay: 0.01
   patience: 5  # Increased patience for better convergence
   gradient_clip_val: 1.0
-  max_epochs: 8  # Increased epochs for better training
-  num_workers: 4  # Good for P3 V100 data loading
+  max_epochs: 5  # Optimized for production
+  num_workers: 4  # Good for data loading
+  # ROUGE evaluation settings
+  rouge_eval_frequency: 20  # Calculate ROUGE every 20 validation batches
+  rouge_eval_samples: 5     # Number of samples to evaluate for ROUGE
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   precision: "16-mixed"

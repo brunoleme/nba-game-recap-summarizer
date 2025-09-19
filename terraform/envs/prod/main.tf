@@ -53,6 +53,7 @@ module "ecs" {
 
   # setting MODEL_PATH env var
   model_path = var.model_path
+  hf_token   = var.hf_token
 
   # ALB
   enable_canary       = var.enable_canary

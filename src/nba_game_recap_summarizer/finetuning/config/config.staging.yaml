@@ -9,28 +9,28 @@ model:
   quantization: true
   quantization_type: "4bit"
   peft_method: "lora"
-  max_length: 2048  # LLaMA-3.2-1B works well with 2048 context
+  max_length: 1536  # Optimized for memory efficiency
 
 lora:
-  r: 8  # Moderate for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
-  alpha: 16  # Proportional to r
-  dropout: 0.05  # Lower dropout for smaller model
-  prompt_tuning_n_tokens: 20
+  r: 16  # Optimized for better performance
+  alpha: 32  # Proportional to r
+  dropout: 0.1  # Balanced dropout
+  prompt_tuning_n_tokens: 10
 
 training:
-  batch_size: 2  # Conservative for LLaMA-3.2-1B on G5 A10G (24GB VRAM)
-  accumulate_grad_batches: 8  # Effective batch size = 2 * 8 = 16
-  learning_rate: 2e-5  # Good learning rate for LLaMA
-  warmup_steps: 100  # Reduced for smaller model
+  batch_size: 4  # Optimized for memory efficiency
+  accumulate_grad_batches: 8  # Effective batch size = 4 * 8 = 32
+  learning_rate: 1e-5  # Lower learning rate for stability
+  warmup_steps: 50  # Reduced for smaller model
   weight_decay: 0.01  # Regularization
-  patience: 3  # Reduced patience for faster iteration
+  patience: 5  # Increased patience for better convergence
   precision: "16-mixed"
   gradient_clip_val: 1.0
-  max_epochs: 3  # Reduced for quick testing of tokenizer fix
+  max_epochs: 3  # Optimized for staging
   num_workers: 2  # Reduced for smaller model
   # ROUGE evaluation settings
-  rouge_eval_frequency: 10  # Calculate ROUGE every 10 validation batches
-  rouge_eval_samples: 1     # Number of samples to evaluate for ROUGE
+  rouge_eval_frequency: 20  # Calculate ROUGE every 20 validation batches
+  rouge_eval_samples: 3     # Number of samples to evaluate for ROUGE
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
   gradient_checkpointing: true
@@ -56,9 +56,9 @@ training:
     gamma: 0.5  # For step scheduler
 
 data:
-  train_samples: 1000
-  val_samples: 500
-  test_samples: 500
+  train_samples: 800  # Staging sample size
+  val_samples: 100    # Staging validation size
+  test_samples: 100   # Staging test size
   shuffle: true         # Enable data shuffling for better training
   shuffle_seed: 42      # Random seed for reproducibility
   # Remove train_split, val_split, test_split - rely on train_samples, val_samples, test_samples

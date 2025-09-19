@@ -45,3 +45,9 @@ variable "enable_canary" {
   type        = bool
   default     = true
 }
+
+variable "hf_token" {
+  description = "Hugging Face token for model access"
+  type        = string
+  sensitive   = true
+}

@@ -24,6 +24,12 @@ def preprocessing(cfg: DictConfig):
         test_samples=cfg.data.test_samples,
         shuffle=cfg.data.shuffle,
         shuffle_seed=cfg.data.shuffle_seed,
+        # Data quality filtering parameters
+        apply_quality_filters=cfg.data.apply_quality_filters,
+        min_summary_length=cfg.data.min_summary_length,
+        min_recap_length=cfg.data.min_recap_length,
+        max_length_ratio=cfg.data.max_length_ratio,
+        min_length_ratio=cfg.data.min_length_ratio,
     )
 
     preprocessingmodule.run()

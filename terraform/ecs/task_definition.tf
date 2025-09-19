@@ -26,6 +26,14 @@ resource "aws_ecs_task_definition" "gpu_api" {
         {
           name  = "MODEL_PATH"
           value = var.model_path
+        },
+        {
+          name  = "HF_TOKEN"
+          value = var.hf_token
+        },
+        {
+          name  = "HUGGINGFACEHUB_API_TOKEN"
+          value = var.hf_token
         }
       ]
       logConfiguration = {
@@ -58,7 +66,9 @@ resource "aws_ecs_task_definition" "gpu_api_v2" {
     portMappings = [{ containerPort = 8000 }]
     environment  = [
       { name = "ENV",        value = var.env },
-      { name = "MODEL_PATH", value = var.model_path }
+      { name = "MODEL_PATH", value = var.model_path },
+      { name = "HF_TOKEN",   value = var.hf_token },
+      { name = "HUGGINGFACEHUB_API_TOKEN", value = var.hf_token }
     ]
     logConfiguration = {
       logDriver = "awslogs"

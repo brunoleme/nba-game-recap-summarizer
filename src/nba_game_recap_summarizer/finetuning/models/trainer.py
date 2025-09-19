@@ -220,20 +220,16 @@ class SummarizationModelTrainer:
             else:
                 self.patience_counter += 1
             
-            # Save checkpoint
-            checkpoint_path = os.path.join(
-                self.config.training.model_artifact_dir, 
-                f"{os.getenv('PIPELINE_RUN_ID', 'pipeline_id')}/checkpoints/model_epoch_{epoch}.ckpt"
-            )
-            self.save_checkpoint(checkpoint_path, is_best=is_best)
-            
-            # Also save as best_model.ckpt if this is the best model
+            # Only save best checkpoint (since we use Hugging Face format for inference)
             if is_best:
                 best_checkpoint_path = os.path.join(
                     self.config.training.model_artifact_dir, 
                     f"{os.getenv('PIPELINE_RUN_ID', 'pipeline_id')}/checkpoints/best_model.ckpt"
                 )
                 self.save_checkpoint(best_checkpoint_path, is_best=False)
+                logger.info(f"Best model checkpoint saved to {best_checkpoint_path}")
+            else:
+                logger.info(f"Epoch {epoch} completed - no checkpoint saved (using Hugging Face format for inference)")
             
             # Early stopping
             if self.patience_counter >= self.config.training.patience:
