@@ -43,12 +43,16 @@ class TestInferenceServiceE2E:
     
     def test_complete_inference_workflow(self, mock_llama_model, mock_model_checkpoint):
         """Test the complete inference workflow from request to response."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
              patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists, \
              patch('nba_game_recap_summarizer.api.inference.model', mock_llama_model):
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             # Import and create the app
             from nba_game_recap_summarizer.api.inference import app
@@ -79,11 +83,15 @@ class TestInferenceServiceE2E:
     
     def test_api_documentation_endpoints(self, mock_llama_model, mock_model_checkpoint):
         """Test that API documentation endpoints are accessible."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
              patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists:
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             from nba_game_recap_summarizer.api.inference import app
             from fastapi.testclient import TestClient
@@ -102,11 +110,16 @@ class TestInferenceServiceE2E:
     
     def test_health_check_workflow(self, mock_llama_model, mock_model_checkpoint):
         """Test the health check workflow."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
-             patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists:
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
+             patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists, \
+             patch('nba_game_recap_summarizer.api.inference.model', mock_llama_model):
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             from nba_game_recap_summarizer.api.inference import app
             from fastapi.testclient import TestClient
@@ -122,11 +135,15 @@ class TestInferenceServiceE2E:
     
     def test_error_scenarios_e2e(self, mock_llama_model, mock_model_checkpoint):
         """Test error scenarios in the E2E workflow."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
              patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists:
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             from nba_game_recap_summarizer.api.inference import app
             from fastapi.testclient import TestClient
@@ -161,12 +178,16 @@ class TestInferenceServiceE2E:
     
     def test_request_logging_e2e(self, mock_llama_model, mock_model_checkpoint):
         """Test that request logging works in E2E."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
              patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists, \
              patch('nba_game_recap_summarizer.api.inference.logger') as mock_logger:
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             from nba_game_recap_summarizer.api.inference import app
             from fastapi.testclient import TestClient
@@ -182,12 +203,16 @@ class TestInferenceServiceE2E:
     
     def test_concurrent_requests_e2e(self, mock_llama_model, mock_model_checkpoint):
         """Test handling of concurrent requests in E2E."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
              patch('os.path.exists') as mock_exists, \
              patch('nba_game_recap_summarizer.api.inference.model', mock_llama_model):
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             from nba_game_recap_summarizer.api.inference import app
             from fastapi.testclient import TestClient
@@ -213,12 +238,16 @@ class TestInferenceServiceE2E:
     
     def test_model_error_handling_e2e(self, mock_llama_model, mock_model_checkpoint):
         """Test model error handling in E2E."""
-        with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+        with patch('transformers.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+             patch('transformers.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+             patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
              patch('os.path.exists') as mock_exists, \
              patch('nba_game_recap_summarizer.api.inference.model', mock_llama_model):
             
             mock_exists.return_value = True
-            mock_load.return_value = mock_llama_model
+            mock_tokenizer.return_value = MagicMock()
+            mock_model_hf.return_value = MagicMock()
+            mock_llama_class.return_value = mock_llama_model
             
             # Make the model raise an error
             mock_llama_model.summarize_recap.side_effect = Exception("Model error")
@@ -242,16 +271,28 @@ class TestInferenceServiceWithRealModel:
     """E2E tests with real model components when available."""
     
     def test_real_model_loading_e2e(self):
-        """Test loading a real model checkpoint in E2E."""
-        checkpoint_path = "tests/resources/artifacts/pipeline_id/best_model.ckpt"
+        """Test loading a real Hugging Face model in E2E."""
+        hf_model_path = "tests/resources/artifacts/pipeline_id/hf_model"
         
-        if not os.path.exists(checkpoint_path):
-            pytest.skip("Real checkpoint file not found")
+        if not os.path.exists(hf_model_path):
+            pytest.skip("Real Hugging Face model not found")
         
         try:
-            # Test loading the real model
-            model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                checkpoint_path=checkpoint_path
+            # Test loading the real model using Hugging Face format
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            tokenizer = AutoTokenizer.from_pretrained(hf_model_path)
+            model_hf = AutoModelForCausalLM.from_pretrained(
+                hf_model_path,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+            
+            model = LlamaRecapSummarizationModel(
+                model_name=hf_model_path,
+                tokenizer=tokenizer,
+                model=model_hf
             )
             
             assert model is not None
@@ -261,11 +302,15 @@ class TestInferenceServiceWithRealModel:
             from nba_game_recap_summarizer.api.inference import app
             from fastapi.testclient import TestClient
             
-            with patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint') as mock_load, \
+            with patch('nba_game_recap_summarizer.api.inference.AutoTokenizer.from_pretrained') as mock_tokenizer, \
+                 patch('nba_game_recap_summarizer.api.inference.AutoModelForCausalLM.from_pretrained') as mock_model_hf, \
+                 patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel') as mock_llama_class, \
                  patch('nba_game_recap_summarizer.api.inference.os.path.exists') as mock_exists:
                 
                 mock_exists.return_value = True
-                mock_load.return_value = model
+                mock_tokenizer.return_value = tokenizer
+                mock_model_hf.return_value = model_hf
+                mock_llama_class.return_value = model
                 
                 client = TestClient(app)
                 
@@ -299,14 +344,27 @@ class TestInferenceServiceWithRealModel:
     
     def test_model_performance_e2e(self):
         """Test model performance characteristics in E2E."""
-        checkpoint_path = "tests/resources/artifacts/pipeline_id/best_model.ckpt"
+        hf_model_path = "tests/resources/artifacts/pipeline_id/hf_model"
         
-        if not os.path.exists(checkpoint_path):
-            pytest.skip("Real checkpoint file not found")
+        if not os.path.exists(hf_model_path):
+            pytest.skip("Real Hugging Face model not found")
         
         try:
-            model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
-                checkpoint_path=checkpoint_path
+            # Load model using Hugging Face format
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            tokenizer = AutoTokenizer.from_pretrained(hf_model_path)
+            model_hf = AutoModelForCausalLM.from_pretrained(
+                hf_model_path,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+            
+            model = LlamaRecapSummarizationModel(
+                model_name=hf_model_path,
+                tokenizer=tokenizer,
+                model=model_hf
             )
             
             # Test response time
