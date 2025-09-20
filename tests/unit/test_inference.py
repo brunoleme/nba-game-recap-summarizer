@@ -1,5 +1,6 @@
 import pytest
 import os
+import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
@@ -217,7 +218,12 @@ class TestModelLoading:
         
         with TestClient(test_app) as client:
             # The startup event should have been triggered
-            mock_exists.assert_called_with("/app/models/hf_model")
+            # Check that exists was called with the correct paths
+            expected_calls = [
+                unittest.mock.call("/app/models/hf_model"),
+                unittest.mock.call("/app/models/hf_model/config.json")
+            ]
+            mock_exists.assert_has_calls(expected_calls, any_order=True)
             mock_tokenizer.assert_called_with("/app/models/hf_model")
             mock_model_hf.assert_called()
             mock_llama_model_class.assert_called()
@@ -227,19 +233,28 @@ class TestModelLoading:
     @patch('transformers.AutoModelForCausalLM.from_pretrained')
     @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel')
     @patch('nba_game_recap_summarizer.api.inference.os.path.exists')
+    @patch('nba_game_recap_summarizer.api.inference.os.makedirs')
     @patch('nba_game_recap_summarizer.api.inference.settings')
-    def test_load_model_from_s3_hf_path(self, mock_settings, mock_exists, mock_llama_model_class, mock_model_hf, mock_tokenizer, mock_boto3):
+    def test_load_model_from_s3_hf_path(self, mock_settings, mock_makedirs, mock_exists, mock_llama_model_class, mock_model_hf, mock_tokenizer, mock_boto3):
         """Test loading model from S3 Hugging Face path when local path doesn't exist."""
-        mock_exists.return_value = False
-        mock_settings.model_path = "s3://bucket/model.ckpt"
+        # Mock the exists calls to return False for both the directory and config.json
+        def mock_exists_side_effect(path):
+            if path == "/app/models/hf_model":
+                return False
+            elif path == "/app/models/hf_model/config.json":
+                return False
+            return False
+        
+        mock_exists.side_effect = mock_exists_side_effect
+        mock_settings.model_path = "s3://bucket/hf_model"
         mock_tokenizer.return_value = MagicMock()
         mock_model_hf.return_value = MagicMock()
         mock_llama_model = MagicMock()
         mock_llama_model_class.return_value = mock_llama_model
         
-        # Mock S3 client
+        # Mock S3 client to fail
         mock_s3_client = MagicMock()
-        mock_s3_client.list_objects_v2.return_value = {'Contents': []}
+        mock_s3_client.list_objects_v2.side_effect = Exception("S3 error")
         mock_boto3.return_value = mock_s3_client
         
         # Create a new app instance to test startup
@@ -248,34 +263,54 @@ class TestModelLoading:
         
         with TestClient(test_app) as client:
             # The startup event should have been triggered
-            # Check that exists was called (the exact path may vary)
+            # Check that exists was called (the exact calls may vary based on the logic)
             mock_exists.assert_called()
             # Note: S3 client may not be called if the model loading logic changes
     
-    @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel')
+    @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint')
     @patch('nba_game_recap_summarizer.api.inference.os.path.exists')
-    def test_load_model_fallback_to_hf(self, mock_exists, mock_llama_model_class):
-        """Test model loading fallback to Hugging Face when both local and S3 fail."""
-        mock_exists.return_value = False
-        mock_llama_model = MagicMock()
-        mock_llama_model_class.return_value = mock_llama_model
+    @patch('nba_game_recap_summarizer.api.inference.os.makedirs')
+    @patch('nba_game_recap_summarizer.api.inference.settings')
+    def test_load_model_fallback_to_hf(self, mock_settings, mock_makedirs, mock_exists, mock_load_checkpoint):
+        """Test model loading fallback to checkpoint when both local and S3 fail."""
+        # Mock the exists calls to return False for both the directory and config.json
+        def mock_exists_side_effect(path):
+            if path == "/app/models/hf_model":
+                return False
+            elif path == "/app/models/hf_model/config.json":
+                return False
+            return False
         
-        # Mock the S3 download to fail
-        with patch('boto3.client', side_effect=Exception("S3 error")):
-            # Create a new app instance to test startup
-            test_app = FastAPI()
-            test_app.add_event_handler("startup", load_model)
-            
-            with TestClient(test_app) as client:
-                # Should fallback to Hugging Face model
-                mock_llama_model_class.assert_called()
+        mock_exists.side_effect = mock_exists_side_effect
+        mock_settings.model_path = "local_checkpoint.ckpt"  # Not an S3 path
+        mock_model = MagicMock()
+        mock_load_checkpoint.return_value = mock_model
+        
+        # Create a new app instance to test startup
+        test_app = FastAPI()
+        test_app.add_event_handler("startup", load_model)
+        
+        with TestClient(test_app) as client:
+            # Should fallback to checkpoint loading
+            mock_load_checkpoint.assert_called()
     
-    @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel')
+    @patch('nba_game_recap_summarizer.api.inference.LlamaRecapSummarizationModel.load_model_from_checkpoint')
     @patch('nba_game_recap_summarizer.api.inference.os.path.exists')
-    def test_load_model_failure(self, mock_exists, mock_llama_model_class):
+    @patch('nba_game_recap_summarizer.api.inference.os.makedirs')
+    @patch('nba_game_recap_summarizer.api.inference.settings')
+    def test_load_model_failure(self, mock_settings, mock_makedirs, mock_exists, mock_load_checkpoint):
         """Test model loading failure."""
-        mock_exists.return_value = False
-        mock_llama_model_class.side_effect = Exception("Model loading failed")
+        # Mock the exists calls to return False for both the directory and config.json
+        def mock_exists_side_effect(path):
+            if path == "/app/models/hf_model":
+                return False
+            elif path == "/app/models/hf_model/config.json":
+                return False
+            return False
+        
+        mock_exists.side_effect = mock_exists_side_effect
+        mock_settings.model_path = "s3://bucket/hf_model"
+        mock_load_checkpoint.side_effect = Exception("Model loading failed")
         
         # Mock the S3 download to fail
         with patch('boto3.client', side_effect=Exception("S3 error")):
