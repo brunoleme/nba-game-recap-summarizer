@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, ValidationError, Field, validator
+from pydantic import BaseModel, ValidationError, Field, field_validator, ConfigDict
 from loguru import logger
 import os
 
@@ -177,7 +177,8 @@ class GameRecapRequest(BaseModel):
     game_recap: str = Field(..., min_length=1, description="The NBA game recap")
     max_length: int = Field(default=2048, ge=1, le=2048, description="Maximum length of generated recap summary")
 
-    @validator('game_recap')
+    @field_validator('game_recap')
+    @classmethod
     def clean_game_recap_input(cls, v):
         logger.info("Validating game_recap input")
         try:
@@ -189,23 +190,25 @@ class GameRecapRequest(BaseModel):
             logger.error(f"Error in game_recap validator: {str(e)}")
             raise ValueError(f"Invalid game_recap format: {str(e)}")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "game_recap": "Lakers beats Suns in the overtime with a Bryant game winner.",
                 "max_length": 2048
             }
         }
+    )
 
 class GameRecapResponse(BaseModel):
     game_recap_summary: str
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "game_recap_summary": "Lakers beats Suns..."
             }
         }
+    )
 
 @app.post("/summarize_recap", response_model=GameRecapResponse)
 async def summarize_recap(request: GameRecapRequest):
@@ -213,7 +216,7 @@ async def summarize_recap(request: GameRecapRequest):
     logger.debug("Raw request received")
     try:
         logger.info("Received summarize_recap request")
-        logger.debug(f"Original request: {request.dict()}")
+        logger.debug(f"Original request: {request.model_dump()}")
         if not request.game_recap:
             raise HTTPException(status_code=400, detail="Empty game recap")
         game_recap = clean_game_recap(request.game_recap)

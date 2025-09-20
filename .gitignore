@@ -55,6 +55,7 @@ logs/
 
 # Mac system files
 .DS_Store
+*.icloud
 
 # VSCode
 .vscode/
