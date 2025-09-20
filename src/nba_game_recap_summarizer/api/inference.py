@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, ValidationError, Field, validator
+from pydantic import BaseModel, ValidationError, Field, field_validator, ConfigDict
 from loguru import logger
 import os
 
@@ -137,7 +137,8 @@ class GameRecapRequest(BaseModel):
     game_recap: str = Field(..., min_length=1, description="The NBA game recap")
     max_length: int = Field(default=2048, ge=1, le=2048, description="Maximum length of generated recap summary")
 
-    @validator('game_recap')
+    @field_validator('game_recap')
+    @classmethod
     def clean_game_recap_input(cls, v):
         logger.info("Validating game_recap input")
         try:

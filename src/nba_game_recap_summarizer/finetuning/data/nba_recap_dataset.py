@@ -2,7 +2,6 @@ import os
 from functools import partial
 from typing import Dict, Optional, Any
 
-import pytorch_lightning as pl
 from datasets import load_dataset
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -28,9 +27,10 @@ class CausalLMCollator:
                 raise ValueError("Batch not tokenized: expected 'input_ids' (and 'attention_mask').")
             inputs.append(item)
 
+        # Use the tokenizer's padding_side setting instead of hardcoded "longest"
         batch = self.tokenizer.pad(
             inputs,
-            padding="longest",
+            padding=True,  # Use True to respect tokenizer.padding_side
             pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors="pt",
         )
@@ -47,7 +47,7 @@ class CausalLMCollator:
         return batch
 
 
-class NBARecapDataModule(pl.LightningDataModule):
+class NBARecapDataModule:
     def __init__(
         self,
         source_data_path: str,
@@ -240,16 +240,21 @@ class NBARecapDataModule(pl.LightningDataModule):
             pin_memory=True,
         )
 
+    def get_dataloaders(self) -> Dict[str, DataLoader]:
+        """Get all dataloaders as a dictionary."""
+        return {
+            'train': self._create_dataloader(self.train_dataset, shuffle=self.shuffle),
+            'val': self._create_dataloader(self.val_dataset, shuffle=False),
+            'test': self._create_dataloader(self.test_dataset, shuffle=False)
+        }
 
     def train_dataloader(self) -> DataLoader:
         logger.info("Creating train dataloader")
         return self._create_dataloader(self.train_dataset, shuffle=self.shuffle)
 
-
     def val_dataloader(self) -> DataLoader:
         logger.info("Creating validation dataloader")
         return self._create_dataloader(self.val_dataset, shuffle=False)
-
 
     def test_dataloader(self) -> DataLoader:
         logger.info("Creating test dataloader")

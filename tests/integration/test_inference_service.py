@@ -7,6 +7,7 @@ import torch
 
 from nba_game_recap_summarizer.api.inference import app
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
+from nba_game_recap_summarizer.finetuning.models.phi_model import PhiRecapSummarizationModel
 
 
 class TestInferenceServiceIntegration:

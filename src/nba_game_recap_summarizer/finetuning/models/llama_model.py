@@ -7,6 +7,11 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from .base_model import BaseRecapSummarizationModel
+from ..utils.tokenization_utils import (
+    preprocess_text, 
+    postprocess_text, 
+    add_custom_tokens_to_tokenizer
+)
 
 
 class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
@@ -48,10 +53,11 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         # LLaMA tokenizers often lack pad_token; set to eos for batching
         if getattr(tokenizer, "pad_token", None) is None:
             tokenizer.pad_token = tokenizer.eos_token
+        # CRITICAL: Set padding_side to "left" for decoder-only models
         tokenizer.padding_side = "left"
 
-        # DO NOT add arbitrary special tokens by default for LLaMA.
-        # If you truly need your XML-like tags, you can add them, but then call model.resize_token_embeddings.
+        # Add custom NBA tokens for better performance
+        tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
 
         try:
             if use_quantization and self.quantization_config:
@@ -84,8 +90,10 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             logger.info(f"Applying PEFT: {peft_method}")
             model = get_peft_model(model, self.peft_config)
 
-        # If (and only if) you explicitly added extra tokens above, then:
-        # model.resize_token_embeddings(len(tokenizer))
+        # Resize token embeddings to accommodate custom tokens
+        if len(tokenizer) > model.get_input_embeddings().num_embeddings:
+            logger.info(f"Resizing token embeddings from {model.get_input_embeddings().num_embeddings} to {len(tokenizer)}")
+            model.resize_token_embeddings(len(tokenizer))
 
         return model, tokenizer
 
@@ -109,11 +117,14 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info("Generating game recap summary(LLaMA)")
         logger.debug(f"Input game_recap length: {len(game_recap)}")
 
+        # Preprocess the input text for better tokenization
+        preprocessed_recap = preprocess_text(game_recap)
+
         # Use plain delimiters to avoid changing tokenizer vocab
         prompt = (
             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
             "### NBA Game Recap ###\n"
-            f"{game_recap}\n\n"
+            f"{preprocessed_recap}\n\n"
             "### Recap Summary ###\n"
         )
 
@@ -125,20 +136,23 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
             out = self.model.generate(
                 **enc,
                 max_new_tokens=max_length,
-                do_sample=False,
-                temperature=None,
-                top_p=None,
-                top_k=None,
+                do_sample=True,           # Enable sampling for better quality
+                temperature=0.7,          # Add randomness to avoid repetition
+                top_p=0.9,               # Nucleus sampling
+                top_k=50,                # Limit vocabulary for better quality
                 typical_p=None,
                 eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                 pad_token_id=self.tokenizer.pad_token_id,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.1,
+                no_repeat_ngram_size=0,   # Disable n-gram blocking to prevent word merging
+                repetition_penalty=1.1,   # Lower penalty to prevent word merging
             )
 
         # Strip the prompt portion
         gen_ids = out[0][enc["input_ids"].shape[1]:]
-        return self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        generated_text = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        
+        # Postprocess the generated text to restore proper formatting
+        return postprocess_text(generated_text)
 
     # ---------- batch generation ----------
     def summarize_recaps(self, dataloader: DataLoader, max_length: Optional[int] = None) -> List[str]:
@@ -169,12 +183,14 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                     else:
                         logger.info(f"Batch {batch_idx}: Using raw text input, game_recap count: {len(batch['game_recap'])}")
                         convs: List[str] = batch["game_recap"]
+                        # Preprocess each game recap for better tokenization
+                        preprocessed_convs = [preprocess_text(c) for c in convs]
                         prompts = [
                             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
                             "### NBA Game Recap ###\n"
                             f"{c}\n\n"
                             "### Recap Summary ###\n"
-                            for c in convs
+                            for c in preprocessed_convs
                         ]
                         enc = self.tokenizer(
                             prompts,
@@ -216,15 +232,15 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         out = self.model.generate(
                             **inputs,
                             max_new_tokens=max_new_tokens,
-                            do_sample=False,
-                            temperature=None,
-                            top_p=None,
-                            top_k=None,
+                            do_sample=True,           # Enable sampling for better quality
+                            temperature=0.7,          # Add randomness to avoid repetition
+                            top_p=0.9,               # Nucleus sampling
+                            top_k=50,                # Limit vocabulary for better quality
                             typical_p=None,
                             eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                             pad_token_id=self.tokenizer.pad_token_id,
-                            no_repeat_ngram_size=3,
-                            repetition_penalty=1.1,
+                            no_repeat_ngram_size=0,   # Disable n-gram blocking to prevent word merging
+                            repetition_penalty=1.1,   # Lower penalty to prevent word merging
                         )
                         
                         logger.info(f"Generated output for batch {batch_idx}, shape: {out.shape}")
@@ -239,7 +255,9 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
                         for i in range(out.shape[0]):
                             gen_ids = out[i][prompt_lengths[i]:]
                             decoded = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
-                            results.append(decoded)
+                            # Postprocess the generated text to restore proper formatting
+                            postprocessed = postprocess_text(decoded)
+                            results.append(postprocessed)
                             logger.info(f"Batch {batch_idx}, sample {i}: Generated summary of length {len(decoded)}")
                             
                     except Exception as e:
@@ -282,17 +300,94 @@ class LlamaRecapSummarizationModel(BaseRecapSummarizationModel):
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
 
         try:
-            # Load checkpoint directly from S3 or local path
-            checkpoint = LlamaRecapSummarizationModel.load_from_checkpoint(checkpoint_path)
+            # Handle S3 URLs by downloading first
+            if checkpoint_path.startswith("s3://"):
+                import boto3
+                import tempfile
+                import os
+                
+                s3_client = boto3.client('s3')
+                s3_path_parts = checkpoint_path.replace("s3://", "").split("/", 1)
+                bucket_name = s3_path_parts[0]
+                object_key = s3_path_parts[1]
+                
+                # Download to temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".ckpt") as temp_file:
+                    logger.info(f"Downloading checkpoint from s3://{bucket_name}/{object_key}")
+                    s3_client.download_file(bucket_name, object_key, temp_file.name)
+                    local_checkpoint_path = temp_file.name
+                
+                # Load from local file
+                checkpoint_data = torch.load(local_checkpoint_path, map_location="cpu")
+                
+                # Clean up temporary file
+                os.unlink(local_checkpoint_path)
+            else:
+                # Load checkpoint data directly from local path
+                checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
+            hparams = checkpoint_data.get("hyper_parameters", {})
 
-            # The checkpoint is already fully loaded with model, tokenizer, and state
-            # Just return it directly instead of creating a new instance
+            # Create model with same parameters as training
+            model = LlamaRecapSummarizationModel(
+                model_name=hparams.get("model_name", model_name or "meta-llama/Llama-3.2-1B-Instruct"),
+                model_type=model_type or "llama",
+                use_quantization=hparams.get("use_quantization", True),
+                quantization_type=hparams.get("quantization_type", "4bit"),
+                peft_method=hparams.get("peft_method", peft_method),
+                lora_r=hparams.get("lora_r", 16),
+                lora_alpha=hparams.get("lora_alpha", 32),
+                lora_dropout=hparams.get("lora_dropout", 0.1),
+            )
+
+            # Check if this is a LoRA-only checkpoint
+            if "lora_state_dict" in checkpoint_data:
+                logger.info("Loading LoRA-only checkpoint")
+                # Load LoRA weights directly into the PEFT model
+                model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+            else:
+                # Load full model state dict
+                model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
+            
             logger.success("Model restored successfully from checkpoint")
-            return checkpoint
+            return model
 
         except Exception as e:
-            logger.error(f"Failed to restore model: {str(e)}")
-            raise RuntimeError(f"Restore failed: {e}")
+            # If loading fails due to quantization metadata mismatch, try loading with strict=False
+            if "Unexpected key(s) in state_dict" in str(e) and "absmax" in str(e):
+                logger.warning(f"Quantization metadata mismatch detected, attempting to load with strict=False: {str(e)}")
+                try:
+                    # Load the checkpoint manually to extract hyperparameters
+                    checkpoint_data = torch.load(checkpoint_path, map_location="cpu")
+                    hparams = checkpoint_data.get("hyper_parameters", {})
+                    
+                    # Create model with same parameters as training
+                    model = LlamaRecapSummarizationModel(
+                        model_name=hparams.get("model_name", model_name or "meta-llama/Llama-3.2-1B-Instruct"),
+                        model_type=model_type or "llama",
+                        use_quantization=hparams.get("use_quantization", True),
+                        quantization_type=hparams.get("quantization_type", "4bit"),
+                        peft_method=hparams.get("peft_method", peft_method),
+                        lora_r=hparams.get("lora_r", 16),
+                        lora_alpha=hparams.get("lora_alpha", 32),
+                        lora_dropout=hparams.get("lora_dropout", 0.1),
+                    )
+                    
+                    # Check if this is a LoRA-only checkpoint
+                    if "lora_state_dict" in checkpoint_data:
+                        logger.info("Loading LoRA-only checkpoint with strict=False")
+                        model.load_state_dict(checkpoint_data["lora_state_dict"], strict=False)
+                    else:
+                        # Load full model state dict with strict=False
+                        model.load_state_dict(checkpoint_data["model_state_dict"], strict=False)
+                    logger.success("Model restored successfully from checkpoint with strict=False")
+                    return model
+                    
+                except Exception as e2:
+                    logger.error(f"Failed to restore model even with strict=False: {str(e2)}")
+                    raise RuntimeError(f"Restore failed: {e2}")
+            else:
+                logger.error(f"Failed to restore model: {str(e)}")
+                raise RuntimeError(f"Restore failed: {e}")
 
     def is_loaded(self) -> bool:
         """Check if the model is properly loaded and ready for inference."""

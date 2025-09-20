@@ -84,7 +84,8 @@ jobs:
       run: |
         PIPELINE_ID="${{ github.event.inputs.pipeline_id }}"
         ENVIRONMENT="${{ github.event.inputs.environment }}"
-        MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/checkpoints/best_model.ckpt"
+        # Use Hugging Face model directory instead of .ckpt file
+        MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/hf_model"
         echo "MODEL_PATH=$MODEL_PATH" >> $GITHUB_OUTPUT
         echo "Constructed model path: $MODEL_PATH"
 

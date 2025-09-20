@@ -17,6 +17,7 @@ def test_training_pipeline():
     env_folder = "dev"
     os.environ["ENV"] = env_folder
     os.environ["PIPELINE_RUN_ID"] = "pipeline_id"
+    os.environ["SKIP_WANDB"] = "true"  # Skip wandb in tests
     train(cfg)
 
     ckpts = list(Path(cfg.training.model_artifact_dir + "/pipeline_id/checkpoints").rglob("*.ckpt"))

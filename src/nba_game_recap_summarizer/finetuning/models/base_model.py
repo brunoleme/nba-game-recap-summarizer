@@ -1,16 +1,17 @@
 import datetime
+import os
 import platform
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
 from loguru import logger
 from peft import LoraConfig, PromptTuningConfig
-import pytorch_lightning as pl
 import torch
+import torch.nn as nn
 from torch.optim import AdamW
 from transformers import BitsAndBytesConfig, get_linear_schedule_with_warmup
 
-class BaseRecapSummarizationModel(pl.LightningModule, ABC):
+class BaseRecapSummarizationModel(nn.Module, ABC):
     def __init__(
         self,
         model_name: str,
@@ -28,7 +29,6 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         **kwargs,
     ):
         super().__init__()
-        self.save_hyperparameters()
         self.model_name = model_name
         self.model_type = model_type
         self.learning_rate = learning_rate
@@ -37,8 +37,13 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         self.use_quantization = use_quantization
         self.quantization_type = quantization_type
         self.peft_method = peft_method
-        self.validation_step_outputs = []
-        self.training_step_outputs = []
+        
+        
+        # Memory management
+        self._memory_optimization_enabled = True
+        
+        # Device management
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         logger.info(f"Initializing model: {model_name} ({model_type}), PEFT Method: {peft_method}, Quantization: {use_quantization}")
 
@@ -92,11 +97,13 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         # PEFT Config
         self.peft_config = None
         if self.peft_method == "lora":
+            # Get model-specific target modules
+            target_modules = self._get_lora_target_modules(model_type)
             self.peft_config = LoraConfig(
                 r=lora_r,
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
-                target_modules=["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
+                target_modules=target_modules,
                 task_type="CAUSAL_LM",
             )
         elif self.peft_method == "prompt_tuning":
@@ -128,6 +135,21 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             self.tokenizer.padding_side = "left"
 
+    def _get_lora_target_modules(self, model_type: str) -> list:
+        """Get LoRA target modules based on model type."""
+        if model_type == "llama":
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        elif model_type == "phi":
+            # Phi-3.5-mini uses similar architecture to LLaMA
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        elif model_type == "mistral":
+            # Mistral uses similar architecture to LLaMA
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        else:
+            # Default to LLaMA modules for unknown model types
+            logger.warning(f"Unknown model type '{model_type}', using default LLaMA target modules")
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
     @abstractmethod
     def _initialize_model(
         self,
@@ -140,73 +162,17 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         """Initialize model and tokenizer."""
         pass
 
-    def setup(self, stage: Optional[str] = None) -> None:
-        """Setup runs on every GPU/process."""
-        if stage == "fit" and self.trainer.logger:
-            experiment = self.trainer.logger.experiment
-
-            # Add experiment tags
-            experiment.tags = {
-                "base_model_name": self.hparams.model_name,
-                "lr": self.hparams.learning_rate,
-                "gpu": "gpu" if torch.cuda.is_available() else "cpu",
-                "os": platform.system().lower(),
-                "torch": torch.__version__.split("+")[0],
-                "num_gpu": torch.cuda.device_count() if torch.cuda.is_available() else "no_gpu"
-            }
-
-            # Add experiment config
-            experiment.config.update(
-                {
-                    "model": {
-                        "name": self.hparams.model_name,
-                        "learning_rate": self.learning_rate,
-                        "warmup_steps": self.warmup_steps,
-                        "weight_decay": self.weight_decay,
-                    },
-                    "hardware": {
-                        "gpu": torch.cuda.is_available(),
-                        "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
-                        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-                    },
-                    "environment": {
-                        "python_version": platform.python_version(),
-                        "pytorch_version": torch.__version__,
-                        "platform": platform.platform(),
-                    },
-                },
-                allow_val_change=True,
-            )
-
-    def on_fit_start(self) -> None:
-        """Called when fit begins."""
+    def setup_training(self) -> None:
+        """Setup for training - disable cache for training."""
         if hasattr(self.model, "config"):
             self.model.config.use_cache = False  # important for training
-        if self.trainer.logger:
-            experiment = self.trainer.logger.experiment
-            current_tags = list(experiment.tags) if experiment.tags else []
+        
+        # Log initial sample prediction to show "before" state
+        logger.info("🚀 TRAINING STARTED - Initial Model State:")
+        self._log_sample_prediction()
 
-            new_tags = [
-                f"max_epochs_{self.trainer.max_epochs}",
-                f"precision_{self.trainer.precision}",
-                f"grad_clip_{self.trainer.gradient_clip_val}",
-            ]
-
-            experiment.tags = current_tags + new_tags
-
-            training_config = {
-                "max_epochs": self.trainer.max_epochs,
-                "precision": self.trainer.precision,
-                "gradient_clip_val": self.trainer.gradient_clip_val,
-                "accumulate_grad_batches": self.trainer.accumulate_grad_batches,
-                "strategy_type": self.trainer.strategy.__class__.__name__,
-                "batch_size": self.trainer.datamodule.batch_size
-                if hasattr(self.trainer, "datamodule") else None,
-            }
-
-            experiment.config.update({"training": training_config}, allow_val_change=True)
-
-    def on_fit_end(self) -> None:
+    def setup_inference(self) -> None:
+        """Setup for inference - enable cache for inference."""
         if hasattr(self.model, "config"):
             self.model.config.use_cache = True   # re-enable for inference
 
@@ -215,106 +181,57 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         """Forward pass of the model."""
         pass
 
-    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        # Log GPU memory before forward pass
-        if torch.cuda.is_available():
-            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
-                logger.debug(f"Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
-        
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Compute loss for a batch - used in training loop."""
         outputs = self(**batch)
-        loss = outputs.loss
+        return outputs.loss
 
-        # Log GPU memory after forward pass
-        if torch.cuda.is_available():
-            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
-                logger.debug(f"Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
-                logger.debug(f"Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
-        
-        self.log("train_loss", loss, prog_bar=True)
-        self.training_step_outputs.append(loss.detach().cpu())
-
-        return loss
-
-
-    # def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-    #     outputs = self(**batch)
-    #     loss = outputs.loss
-
-    #     self.log("val_loss", loss, prog_bar=True)
-    #     self.validation_step_outputs.append(loss.detach().cpu())
-
-    def validation_step(self, batch, batch_idx):
-        # Log GPU memory before forward pass
-        if torch.cuda.is_available():
-            gpu_memory_before = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
-                logger.debug(f"Val Batch {batch_idx} - GPU Memory before forward: {gpu_memory_before:.2f} GB")
-        
+    def compute_validation_metrics(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> Dict[str, float]:
+        """Compute validation metrics for a batch."""
         outputs = self(**batch)
         loss = outputs.loss
         
-        # Log GPU memory after forward pass
-        if torch.cuda.is_available():
-            gpu_memory_after = torch.cuda.memory_allocated(0) / 1024**3
-            if batch_idx % 5 == 0:  # Log every 5th batch to avoid spam
-                logger.debug(f"Val Batch {batch_idx} - GPU Memory after forward: {gpu_memory_after:.2f} GB")
-                logger.debug(f"Val Batch {batch_idx} - GPU Memory delta: {gpu_memory_after - gpu_memory_before:.2f} GB")
+        metrics = {"val_loss": loss.item()}
         
         # Calculate ROUGE score for a subset of validation samples
-        rouge_frequency = getattr(self.hparams, 'rouge_eval_frequency', 10)
-        if batch_idx % rouge_frequency == 0 and hasattr(self, 'tokenizer'):
+        # Only run ROUGE evaluation in debug mode
+        debug_mode = os.getenv('DEBUG_ROUGE', 'false').lower() == 'true'
+        rouge_frequency = getattr(self, 'rouge_eval_frequency', 10)
+        if debug_mode and batch_idx % rouge_frequency == 0 and hasattr(self, 'tokenizer'):
             try:
                 # Generate predictions for ROUGE evaluation
                 predictions, references = self._generate_predictions_for_eval(batch)
                 if predictions and references:
                     rouge_score = self._calculate_rouge_score(predictions, references)
-                    self.log("val_rouge_l", rouge_score, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
-                    logger.info(f"Validation ROUGE-L Score: {rouge_score:.4f}")
+                    metrics["val_rouge_1_2"] = rouge_score
+                    logger.info(f"Validation ROUGE-1/2 Score: {rouge_score:.4f}")
             except Exception as e:
                 logger.debug(f"ROUGE calculation failed for batch {batch_idx}: {e}")
         
-        # keep per-step if you want, but make sure on_epoch=True is set:
-        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=False)
-        self.validation_step_outputs.append(loss.detach().cpu())
-
-
-    # def on_validation_epoch_end(self) -> None:
-    #     avg_val_loss = torch.stack(self.validation_step_outputs).mean()
-    #     self.log("epoch_val_loss", avg_val_loss)
-
-    #     self.validation_step_outputs.clear()
-
-    def on_validation_epoch_end(self):
-        if self.validation_step_outputs:
-            avg = torch.stack(self.validation_step_outputs).mean()
-        else:
-            avg = torch.tensor(0.0, device=self.device)
-        self.log("val_loss", avg, prog_bar=True, on_epoch=True, sync_dist=False)   # <= important
-        self.log("epoch_val_loss", avg, on_epoch=True, sync_dist=False)            # optional alias
-        self.validation_step_outputs.clear()
-
-    def on_train_epoch_end(self) -> None:
-        avg_train_loss = torch.stack(self.training_step_outputs).mean()
-        self.log("epoch_train_loss", avg_train_loss)
-
-        self.training_step_outputs.clear()
+        return metrics
 
     def _generate_predictions_for_eval(self, batch):
         """Generate predictions for evaluation metrics during validation."""
         try:
-            # For now, we'll use a simple approach: generate predictions without references
-            # This will still show us if the model is improving in generating coherent text
+            # Use actual batch data for ROUGE evaluation
+            if "game_recap" in batch and "game_recap_summary" in batch:
+                # Use the first sample from the batch
+                game_recap = batch["game_recap"][0] if isinstance(batch["game_recap"], list) else batch["game_recap"]
+                reference = batch["game_recap_summary"][0] if isinstance(batch["game_recap_summary"], list) else batch["game_recap_summary"]
+                
+                # Generate prediction
+                try:
+                    prediction = self.summarize_recap(game_recap, max_length=200)
+                    if prediction and prediction.strip() and reference and reference.strip():
+                        return [prediction], [reference]
+                except Exception as e:
+                    logger.debug(f"Failed to generate prediction: {e}")
             
-            # Use a simple test case for ROUGE evaluation
+            # Fallback to simple test case
             test_game_recap = "The Lakers defeated the Warriors 120-115. LeBron James scored 30 points and Anthony Davis added 25 points."
-            
-            # Generate prediction
             try:
                 prediction = self.summarize_recap(test_game_recap, max_length=100)
                 if prediction and prediction.strip():
-                    # Use a simple reference for comparison
                     reference = "The Lakers beat the Warriors 120-115 with LeBron James scoring 30 points and Anthony Davis adding 25 points."
                     return [prediction], [reference]
             except Exception as e:
@@ -327,7 +244,7 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             return [], []
 
     def _calculate_rouge_score(self, predictions, references):
-        """Calculate ROUGE-L score for predictions and references."""
+        """Calculate ROUGE-1 score for predictions and references."""
         try:
             from evaluate import load
             rouge_metric = load("rouge")
@@ -343,17 +260,91 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
             # Calculate ROUGE scores
             rouge_scores = rouge_metric.compute(
                 predictions=list(preds),
-                references=list(refs),
-                use_aggregator=False
+                references=list(refs)
             )
             
-            # Return ROUGE-L F1 score (most relevant for summarization)
-            rouge_l_f1 = rouge_scores['rougeL'].mid.fmeasure
-            return float(rouge_l_f1) if rouge_l_f1 is not None else 0.0
+            # Return ROUGE-1 F1 score (simpler and more reliable)
+            rouge_1_f1 = rouge_scores['rouge1']
+            return float(rouge_1_f1) if rouge_1_f1 is not None else 0.0
             
         except Exception as e:
             logger.debug(f"Error calculating ROUGE score: {e}")
             return 0.0
+
+    def _log_sample_prediction(self):
+        """Generate and log a sample prediction using validation data to track model evolution."""
+        try:
+            # Get current epoch
+            current_epoch = self.trainer.current_epoch if self.trainer else 0
+            
+            # Use a sample from validation data instead of fixed test case
+            if hasattr(self, 'trainer') and self.trainer and hasattr(self.trainer, 'datamodule'):
+                try:
+                    # Get samples from validation dataset
+                    val_dataset = self.trainer.datamodule.val_dataset
+                    if val_dataset and len(val_dataset) > 0:
+                        # Use the first 3 samples from validation set
+                        num_samples = min(3, len(val_dataset))
+                        
+                        logger.info(f"🎯 EPOCH {current_epoch} SAMPLE PREDICTIONS (from validation data):")
+                        logger.info("="*80)
+                        
+                        for sample_idx in range(num_samples):
+                            game_recap = val_dataset[sample_idx]["game_recap"]
+                            reference = val_dataset[sample_idx]["game_recap_summary"]
+                            
+                            # Generate prediction
+                            prediction = self.summarize_recap(game_recap, max_length=150)
+                            
+                            # Log the sample prediction
+                            logger.info(f"📝 SAMPLE {sample_idx + 1}:")
+                            logger.info(f"   Input: {game_recap[:100]}...")
+                            logger.info(f"   🤖 Generated: {prediction}")
+                            logger.info(f"   📖 Reference: {reference[:100]}...")
+                            logger.info(f"   📊 Generated Length: {len(prediction)} characters")
+                            logger.info(f"   📊 Reference Length: {len(reference)} characters")
+                            logger.info("-" * 60)
+                        
+                        # Also log to W&B if available (using first sample for W&B)
+                        if self.trainer.logger:
+                            first_prediction = self.summarize_recap(val_dataset[0]["game_recap"], max_length=150)
+                            first_reference = val_dataset[0]["game_recap_summary"]
+                            self.log(f"sample_prediction_epoch_{current_epoch}", first_prediction, on_epoch=True)
+                            self.log(f"sample_reference_epoch_{current_epoch}", first_reference, on_epoch=True)
+                    else:
+                        logger.warning("No validation data available for sample prediction")
+                except Exception as e:
+                    logger.debug(f"Error accessing validation data: {e}")
+                    # Fallback to fixed test case if validation data access fails
+                    self._log_fallback_sample_prediction(current_epoch)
+            else:
+                # Fallback to fixed test case if trainer/datamodule not available
+                self._log_fallback_sample_prediction(current_epoch)
+                
+        except Exception as e:
+            logger.debug(f"Error generating sample prediction: {e}")
+    
+    def _log_fallback_sample_prediction(self, current_epoch):
+        """Fallback method using fixed test case."""
+        try:
+            test_game_recap = (
+                "The Los Angeles Lakers defeated the Golden State Warriors 120-115 in a thrilling overtime victory. "
+                "LeBron James led the Lakers with 30 points, 8 rebounds, and 7 assists, while Anthony Davis added 25 points and 12 rebounds. "
+                "Stephen Curry scored 28 points for the Warriors, including 6 three-pointers. "
+                "The game was tied at 110-110 at the end of regulation, but the Lakers pulled away in overtime with key baskets from James and Davis. "
+                "The Lakers improved to 15-10 on the season while the Warriors fell to 12-13."
+            )
+            
+            prediction = self.summarize_recap(test_game_recap, max_length=150)
+            
+            logger.info(f"🎯 EPOCH {current_epoch} SAMPLE PREDICTION (fallback test case):")
+            logger.info(f"📝 Input: {test_game_recap[:100]}...")
+            logger.info(f"🤖 Generated: {prediction}")
+            logger.info(f"📊 Length: {len(prediction)} characters")
+            
+        except Exception as e:
+            logger.debug(f"Error in fallback sample prediction: {e}")
+
 
     def on_fit_end(self):
         try:
@@ -364,24 +355,55 @@ class BaseRecapSummarizationModel(pl.LightningModule, ABC):
         except Exception:
             pass
 
-    def configure_optimizers(self):
+    def get_optimizer_and_scheduler(self, num_training_steps: int, lr_scheduler_config: Dict = None):
+        """Get optimizer and scheduler for training - used in training loop."""
         optimizer = AdamW(
             self.parameters(),
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=self.warmup_steps,
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-            },
-        }
+        
+        if lr_scheduler_config is None:
+            lr_scheduler_config = {}
+        
+        scheduler_name = lr_scheduler_config.get('name', 'linear_warmup')
+        
+        if scheduler_name == 'cosine':
+            # Cosine annealing scheduler
+            from torch.optim.lr_scheduler import CosineAnnealingLR
+            T_max = lr_scheduler_config.get('T_max', 3)  # Default 3 epochs
+            eta_min = lr_scheduler_config.get('eta_min', self.learning_rate * 0.1)
+            scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
+        elif scheduler_name == 'step':
+            # Step scheduler
+            from torch.optim.lr_scheduler import StepLR
+            step_size = lr_scheduler_config.get('step_size', 2)
+            gamma = lr_scheduler_config.get('gamma', 0.5)
+            scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+        else:
+            # Default: Linear warmup scheduler
+            scheduler = get_linear_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=self.warmup_steps,
+                num_training_steps=num_training_steps,
+            )
+        
+        return optimizer, scheduler
+
+    def _clear_memory(self):
+        """Clear GPU memory and run garbage collection."""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+    
+    def clear_memory_if_needed(self, batch_idx: int, is_validation: bool = False):
+        """Clear memory periodically during training/validation."""
+        if self._memory_optimization_enabled:
+            if is_validation and batch_idx % 5 == 0:
+                self._clear_memory()
+            elif not is_validation and batch_idx % 10 == 0:
+                self._clear_memory()
 
     @abstractmethod
     def summarize_recap(self, game_recap: str, max_length: Optional[int] = None) -> str:

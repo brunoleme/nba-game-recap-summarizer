@@ -1,0 +1,62 @@
+project_name: nba-recap-finetune-phase1
+
+logging:
+  log_path: logs
+
+model:
+  type: llama
+  name: meta-llama/Llama-3.2-1B-Instruct
+  quantization: false  # Disable quantization for testing
+  quantization_type: 8bit
+  peft_method: lora
+  max_length: 2048  # Reduced from 4096 for memory efficiency
+
+lora:
+  r: 32          # 2.7x more capacity than previous runs
+  alpha: 64      # Proportional to r (2x r)
+  dropout: 0.1   # Less dropout for more capacity
+  prompt_tuning_n_tokens: 20
+
+training:
+  batch_size: 2  # Reduced from 4 for memory
+  accumulate_grad_batches: 4  # Effective batch size = 2 * 4 = 8
+  learning_rate: 3.5e-6  # Slightly reduced for stability
+  warmup_steps: 300  # Increased warmup for lower LR
+  weight_decay: 0.07  # Balanced regularization
+  patience: 3  # Reduced patience for early stopping
+  precision: 32  # Use full FP32 precision to avoid BFloat16 issues
+  gradient_clip_val: 0.4  # Keep current gradient clipping
+  max_epochs: 5  # 5 epochs for comparison
+  num_workers: 2
+  rouge_eval_frequency: 5  # More frequent evaluation
+  rouge_eval_samples: 2    # More samples for evaluation
+  model_artifact_dir: ./checkpoints
+  devices: auto
+  gradient_checkpointing: true
+  enable_model_summary: false
+  log_every_n_steps: 5
+  
+  # Learning Rate Scheduling - Step scheduler (less aggressive)
+  lr_scheduler:
+    name: "step"
+    step_size: 2  # Reduce LR every 2 epochs
+    gamma: 0.5  # Reduce by 50%
+
+data:
+  train_samples: 1000  # Keep staging size for testing
+  val_samples: 500     # Keep staging size for testing
+  test_samples: 500    # Keep staging size for testing
+  shuffle: true
+  shuffle_seed: 42
+  # Remove confusing split parameters - rely only on explicit sample counts
+  source_data_folder: data/samples
+  source_data_path: game_recaps_with_summaries.csv
+  preprocessed_output_data_folder: ./output
+  preprocessed_input_data_folder: ./data/samples
+
+evaluation:
+  model_artifact_dir: ./checkpoints
+  reports_dir: ./reports
+  test_samples_lexical_metrics: 50
+  test_samples_semantic_metrics: 25
+  test_samples_ai_as_judge_metrics: 10

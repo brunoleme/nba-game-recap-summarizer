@@ -15,6 +15,7 @@ def test_full_pipeline():
     env_folder = "dev"
     os.environ["ENV"] = env_folder
     os.environ["PIPELINE_RUN_ID"] = "pipeline_id"
+    os.environ["SKIP_WANDB"] = "true"  # Skip wandb in tests
 
     preprocessing(cfg)
     train(cfg)

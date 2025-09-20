@@ -5,7 +5,7 @@ logging:
 
 model:
   type: "llama"
-  name: "hf-internal-testing/tiny-random-LlamaForCausalLM"
+  name: "hf-internal-testing/tiny-random-LlamaForCausalLM"  # Keep tiny LLaMA for fast unit tests
   quantization: false
   quantization_type: "4bit"
   peft_method: "lora"
@@ -37,14 +37,18 @@ data:
   test_samples: 5
   shuffle: false
   shuffle_seed: 42
-  train_split: 0.5
-  val_split: 0.25
-  test_split: 0.25
+  # Remove train_split, val_split, test_split - rely on train_samples, val_samples, test_samples
   shuffle_buffer_size: 128
   source_data_folder: "tests/resources"
   source_data_path: "source_data/game_recaps_with_summaries_sample.csv"
   preprocessed_output_data_folder: "tests/resources"      # tests override this anyway
   preprocessed_input_data_folder: "tests/resources" # app appends /preprocessed
+  # Data quality filtering settings
+  apply_quality_filters: true
+  min_summary_length: 5  # Lower threshold for test data
+  min_recap_length: 20   # Lower threshold for test data
+  max_length_ratio: 0.8
+  min_length_ratio: 0.01
 
 evaluation:
   model_artifact_dir: "tests/resources/artifacts"   # <- must match training
