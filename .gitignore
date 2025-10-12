@@ -85,11 +85,18 @@ htmlcov/
 tests/resources/artifacts/staging/
 *.ckpt
 wandb_export_*.csv
+
+# Large CSV files
 source_data.csv
+game_recaps_with_summaries.csv
+tests/resources/source_data/game_recaps_with_summaries.csv
+
+# Large model artifacts
+tests/resources/artifacts/pipeline_id/
+tests/resources/artifacts/best_model*.ckpt
 
 # Debug and temporary files
-source_data.csv
 debug_output/
 config.debug.*.yaml
-test_*.py
+debug_*.py
 final_inference_example.py
