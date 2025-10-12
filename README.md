@@ -1,46 +1,641 @@
 # NBA Game Recap Summarizer
 
-A production-ready machine learning pipeline that fine-tunes LLaMA models to generate concise summaries of NBA game recaps from ESPN. The project includes a complete MLOps infrastructure with AWS SageMaker, Terraform, and containerized deployment.
+A production-ready machine learning pipeline that fine-tunes large language models to generate concise summaries of NBA game recaps from ESPN. The project includes a complete MLOps infrastructure with AWS SageMaker, Terraform, and containerized deployment with multiple deployment options.
 
 ## 🏀 Overview
 
 This project transforms lengthy NBA game recaps into concise, informative summaries using state-of-the-art language models. It's designed for production use with:
 
-- **Fine-tuned LLaMA 3.2 1B model** with LoRA (Low-Rank Adaptation)
-- **4-bit quantization** for memory efficiency
-- **Comprehensive evaluation** with ROUGE, BLEU, BERTScore, and LLM-as-a-Judge metrics
-- **Production deployment** on AWS ECS with Application Load Balancer
-- **CI/CD pipeline** with GitHub Actions
-- **Multi-environment support** (dev, staging, prod)
+- **Multiple LLM Support**: LLaMA 3.2, Mistral-7B, and Phi-3.5 models
+- **Fine-tuning with LoRA**: Low-Rank Adaptation with 4-bit quantization
+- **Pure PyTorch Training**: Optimized training framework (20-30% less GPU memory than PyTorch Lightning)
+- **Comprehensive Data Quality**: Advanced filtering system removes corrupted data
+- **Dual Deployment Options**: EC2 for testing/debugging, ECS for production
+- **Production-Ready Infrastructure**: Auto-scaling, canary deployment, and monitoring
+- **Complete MLOps Pipeline**: CI/CD with GitHub Actions, SageMaker, and Terraform
 
 ## 🏗️ Architecture
 
 ```mermaid
 graph TB
-    A[ESPN NBA Recaps] --> B[Data Preprocessing]
+    A[ESPN NBA Recaps] --> B[Data Preprocessing & Quality Filtering]
     B --> C[SageMaker Training Pipeline]
     C --> D[Model Evaluation]
     D --> E[Model Artifacts S3]
     E --> F[ECR Docker Images]
-    F --> G[ECS Service]
-    G --> H[Application Load Balancer]
-    H --> I[FastAPI Inference API]
+    F --> G{Deployment Type}
+    G -->|Testing| H[EC2 Instance]
+    G -->|Production| I[ECS Service]
+    I --> J[Application Load Balancer]
+    J --> K[Canary Deployment]
+    K -->|90%| L[Stable V1]
+    K -->|10%| M[New V2]
     
-    J[GitHub Actions] --> C
-    J --> F
-    J --> K[Terraform Infrastructure]
-    K --> G
-    K --> H
+    N[GitHub Actions] --> C
+    N --> F
+    N --> O[Terraform Infrastructure]
+    O --> G
 ```
+
+## 🚀 Deployment Options
+
+### EC2 Deployment - Testing & Debugging
+
+**Purpose**: Quick validation and debugging before production deployment
+
+**Features**:
+- ✅ **Direct SSH Access**: Full control for debugging and troubleshooting
+- ✅ **Quick Deployment**: ~5 minutes to deploy and test
+- ✅ **Cost-Effective**: On-demand instances, destroy after testing
+- ✅ **Simple Architecture**: Single GPU instance with public IP
+- ✅ **Manual Control**: Deploy only when needed
+
+**Use Cases**:
+- Validate new models before ECS deployment
+- Debug inference issues with direct access
+- Quick testing of configuration changes
+- Model performance benchmarking
+
+**Quick Start**:
+```bash
+# Via GitHub Actions
+Actions → Manual EC2 Deployment → Run workflow
+
+# Access your service
+http://<instance-ip>:8000/health
+http://<instance-ip>:8000/docs
+
+# Cleanup when done
+Actions → Cleanup EC2 Deployment → DESTROY
+```
+
+📚 **[Full EC2 Deployment Guide →](docs/EC2_DEPLOYMENT.md)**
+
+---
+
+### ECS Deployment - Production
+
+**Purpose**: Production-grade deployment with high availability and auto-scaling
+
+**Features**:
+- ✅ **Auto-Scaling**: ECS Capacity Provider with target 80% utilization
+- ✅ **Load Balancing**: Application Load Balancer with health checks
+- ✅ **Canary Deployment**: Gradual rollout (90% stable, 10% new)
+- ✅ **High Availability**: Automatic failover and rollback
+- ✅ **Private Networking**: Secure VPC with private subnets
+- ✅ **Always Available**: Production-ready 24/7 operation
+
+**Deployment Flow**:
+```bash
+# 1. Deploy stable version (V1)
+make sagemaker-pipeline-trigger ENV=prod
+
+# 2. Enable canary deployment (10% traffic to V2)
+terraform apply -var="enable_canary=true" -var="canary_weight_v2=10"
+
+# 3. Monitor metrics, then promote to stable
+Actions → Promote Canary to Stable → Run workflow
+
+# 4. V2 becomes V1 (100% traffic)
+```
+
+**Auto-Scaling Configuration**:
+- **Target Capacity**: 80% utilization
+- **Min Instances**: 1
+- **Max Instances**: Configurable (default: 10)
+- **Warmup Period**: 300 seconds
+- **Scaling Step**: 1-1000 instances
+
+---
+
+### Deployment Comparison
+
+| Feature | EC2 Deployment | ECS Deployment |
+|---------|----------------|----------------|
+| **Purpose** | Testing/Debugging | Production |
+| **Access** | Direct IP (public) | Load Balancer (private) |
+| **Scaling** | ❌ Manual | ✅ Auto-scaling |
+| **Cost** | 💰 On-demand | 💰💰 Always running |
+| **Debugging** | ✅ Full SSH access | ⚠️ ECS exec only |
+| **Setup Time** | ~5 minutes | ~10 minutes |
+| **Availability** | Single instance | Multi-AZ HA |
+| **Canary** | ❌ Not supported | ✅ Traffic splitting |
+| **Rollback** | ❌ Manual | ✅ Automatic |
+| **Best For** | Model validation | 24/7 production |
+
+## 🤖 Supported Models
+
+### LLaMA 3.2 (Default)
+- **Sizes**: 1B, 3B parameters
+- **Strengths**: Well-tested, balanced performance
+- **Config**: `config.dev.yaml`, `config.staging.yaml`, `config.prod.yaml`
+- **GPU**: g4dn.xlarge (16GB) sufficient for 1B model
+
+### Mistral-7B
+- **Size**: 7B parameters
+- **Strengths**: Higher quality summaries, better instruction following
+- **Config**: `config.dev.mistral.yaml`, `config.staging.mistral.yaml`, `config.prod.mistral.yaml`
+- **GPU**: P3 V100 (32GB) or g5.2xlarge recommended
+
+### Phi-3.5
+- **Size**: 3.8B parameters
+- **Strengths**: Microsoft's efficient model, good quality/size ratio
+- **Config**: `config.dev.phi.yaml`, `config.staging.phi.yaml`, `config.prod.phi.yaml`
+- **GPU**: g4dn.xlarge (16GB) with optimizations
+
+### Model Selection Guide
+
+```python
+# Use LLaMA for balanced performance (recommended starting point)
+model.type: "llama"
+model.name: "meta-llama/Llama-3.2-1B-Instruct"
+
+# Use Mistral for highest quality (requires more GPU memory)
+model.type: "mistral"
+model.name: "mistralai/Mistral-7B-Instruct-v0.3"
+
+# Use Phi for efficiency (good balance)
+model.type: "phi"
+model.name: "microsoft/Phi-3.5-mini-instruct"
+```
+
+## 📊 Data Pipeline
+
+### Data Source
+- **Input**: ESPN NBA game recaps (CSV format)
+- **Location**: S3 bucket `nba-recap-summarization-model-source-data`
+- **Format**: `game_recaps_with_summaries.csv`
+- **Size**: 4,775 samples → 4,588 after quality filtering (3.9% removed)
+
+### Data Quality Filtering System
+
+Comprehensive filtering to ensure high-quality training data:
+
+**Quality Filters Applied**:
+- ✅ **Minimum Summary Length**: 10 words
+- ✅ **Minimum Recap Length**: 50 words
+- ✅ **Maximum Length Ratio**: 0.8 (summary can't be >80% of recap)
+- ✅ **Minimum Length Ratio**: 0.01 (summary must be >1% of recap)
+- ✅ **Remove Corrupted Data**: "[No meaningful paragraphs found]"
+- ✅ **Remove Duplicates**: 160 duplicate recaps eliminated
+- ✅ **Remove HTML**: Clean HTML contamination
+- ✅ **Remove Score-Only**: Summaries with just scores
+
+**Results**:
+- Initial samples: 4,775
+- Removed samples: 187 (3.9%)
+- Clean samples: 4,588
+- Impact: **20.6% ROUGE score** (vs 0.0% with corrupted data)
+
+**Configuration**:
+```yaml
+data:
+  apply_quality_filters: true
+  min_summary_length: 10
+  min_recap_length: 50
+  max_length_ratio: 0.8
+  min_length_ratio: 0.01
+```
+
+📚 **[Full Debugging Story →](NBA_GAME_RECAP_DEBUGGING_DOCUMENTATION.md)**
+
+### Preprocessing
+- **Text cleaning**: Remove special characters, normalize whitespace
+- **Tokenization**: Model-specific tokenizer with max length 1536-2048
+- **Data splitting**: 50% train, 25% validation, 25% test
+- **Format**: Hugging Face datasets format with quality statistics
+
+### Training Data Structure
+```python
+{
+    "game_recap": "Lakers beat Suns 120-118 in overtime...",
+    "summary": "Lakers defeated Suns in overtime thriller...",
+    "game_id": "20240115-LAL-PHX"
+}
+```
+
+## 🏋️ Training Framework
+
+### Pure PyTorch Implementation
+
+**Migrated from PyTorch Lightning** for better efficiency:
+- ✅ **20-30% less GPU memory** usage
+- ✅ **10-15% faster training** per epoch
+- ✅ **Better control** over training loop
+- ✅ **Easier debugging** with direct PyTorch
+
+**Custom Trainer**: `SummarizationModelTrainer` class handles:
+- Training loop with gradient accumulation
+- Validation with ROUGE evaluation
+- Checkpoint management (best model only)
+- Memory optimization hooks
+- Wandb integration for logging
+
+📚 **[Migration Guide →](MIGRATION_GUIDE.md)**
+
+### Fine-tuning Strategy
+
+**LoRA (Low-Rank Adaptation)**:
+- **Parameters**: r=8, alpha=8, dropout=0.1
+- **Target Modules**: q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
+- **Efficiency**: Only ~1% of parameters trained
+- **4-bit Quantization**: ~75% memory reduction
+
+**Memory Optimization**:
+- ✅ **Gradient Checkpointing**: Trade compute for memory
+- ✅ **Memory Clearing Hooks**: Clear GPU cache every 10 batches
+- ✅ **Mixed Precision**: 16-bit training (bf16/fp16)
+- ✅ **Optimized Sequence Length**: 1536 tokens (reduced from 2048)
+- ✅ **Environment Config**: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+
+### Training Configuration
+
+**Optimized Settings**:
+```yaml
+training:
+  batch_size: 1
+  accumulate_grad_batches: 8  # Effective batch size = 8
+  learning_rate: 1e-5
+  max_epochs: 3
+  precision: "16-mixed"
+  gradient_checkpointing: true
+  gradient_clip_val: 1.0
+  warmup_steps: 50
+  lr_scheduler:
+    name: "linear_warmup"
+```
+
+**Training Times** (1000 samples on g4dn.xlarge):
+- Preprocessing: 7-10 minutes
+- Training: 20-30 minutes
+- Evaluation: 5-10 minutes
+- Total: ~45 minutes
+
+## 📈 Evaluation Metrics
+
+### Lexical Metrics
+- **ROUGE-1, ROUGE-2, ROUGE-L**: Measures n-gram overlap
+  - Peak: 20.6% ROUGE-1 on validation set
+- **BLEU**: Precision-based evaluation
+
+### Semantic Metrics
+- **BERTScore**: Contextual similarity using BERT embeddings
+- **Evaluates**: Semantic meaning beyond word overlap
+
+### LLM-as-a-Judge (GPT-4)
+- **Relevance**: How well summary captures key game events (0-10)
+- **Factual Consistency**: Accuracy of information (0-10)
+- **Completeness**: Coverage of important details (0-10)
+- **Clarity**: Readability and coherence (0-10)
+- **Conciseness**: Brevity while maintaining information (0-10)
+
+### Evaluation Results
+
+**Model Quality** (After Data Quality Fixes):
+```
+ROUGE Progression:
+Epoch 1: 0.0889
+Epoch 2: 0.1579
+Epoch 3: 0.1818
+Epoch 4: 0.2059 (20.6%)
+
+Loss Convergence:
+Train: 8.69 → 5.92
+Val: 6.23 → 6.00
+```
+
+**Generated Summary Example**:
+```
+**Game Details:**
+* Date: Tuesday
+* Opponent: Golden State Warriors
+* Score: 120-115 (Los Angeles Lakers)
+* Time: 2nd half (1st half tied 108-108)
+
+**Notable Performances:**
+* LeBron James: 32 points, 8 rebounds, 7 assists
+* Anthony Davis: 28 points, 4 rebounds, 3 steals
+* Stephen Curry: 31 points, 6 three-pointers, 5 rebounds
+```
+
+## 🏭 Production Infrastructure
+
+### AWS Services
+- **SageMaker**: Training and evaluation pipelines
+- **ECS**: Container orchestration with Fargate
+- **EC2**: On-demand testing instances
+- **ECR**: Docker image registry
+- **S3**: Data and model storage
+- **ALB**: Application Load Balancer
+- **VPC**: Network isolation (public + private subnets)
+- **Auto Scaling**: ECS Capacity Provider with managed scaling
+- **CloudWatch**: Logs and monitoring
+
+### Multi-Environment Setup
+
+#### Development (`dev`)
+- **Instance**: `ml.g4dn.xlarge`
+- **Samples**: 100 train, 20 val, 20 test
+- **Deployment**: EC2 or ECS
+- **Purpose**: Rapid iteration and testing
+
+#### Staging (`staging`)
+- **Instance**: `ml.g4dn.xlarge`
+- **Samples**: 800 train, 100 val, 100 test
+- **Deployment**: ECS only
+- **Purpose**: Production-like validation
+
+#### Production (`prod`)
+- **Instance**: `ml.g4dn.xlarge` or larger
+- **Samples**: 3500 train, 500 val, 500 test
+- **Deployment**: ECS with canary
+- **Purpose**: Live production serving
+
+### Terraform Infrastructure
+
+**Core Components**:
+```hcl
+# Network Layer
+- VPC (10.0.0.0/16)
+- Public Subnets (ALB, NAT Gateway, EC2 testing)
+- Private Subnets (ECS tasks)
+- Internet Gateway + NAT Gateway
+
+# Compute Layer
+- ECS Cluster with GPU support
+- Auto Scaling Group (min: 1, max: 10)
+- Capacity Provider (target: 80%)
+- Launch Template (GPU-enabled AMI)
+
+# Load Balancing
+- Application Load Balancer
+- Target Groups (V1 stable, V2 canary)
+- Listener Rules (traffic splitting)
+- Health Checks (/health endpoint)
+
+# Security
+- Security Groups (restrictive rules)
+- IAM Roles (least privilege)
+- VPC isolation
+```
+
+**Infrastructure as Code**:
+```bash
+# Deploy infrastructure
+cd terraform/envs/dev
+terraform init
+terraform apply
+
+# Enable canary deployment
+terraform apply -var="enable_canary=true" -var="canary_weight_v2=10"
+
+# Destroy infrastructure
+terraform destroy
+```
+
+## 🔄 CI/CD Pipeline
+
+### GitHub Actions Workflows
+
+#### Training Workflows
+- **`dev-train.yaml`**: Automated dev environment training
+  - Triggered on push to `dev` branch
+  - Runs tests → Builds images → Trains model → Deploys to ECS
+- **`staging-train.yaml`**: Staging environment training
+  - Triggered on push to `staging` branch
+  - Production-like validation before prod deployment
+- **`prod-train.yaml`**: Production training with canary
+  - Triggered on push to `main` branch
+  - Deploys V2 with 10% traffic, V1 keeps 90%
+
+#### Manual Deployment Workflows
+- **`manual-deploy-ec2.yaml`**: Deploy to EC2 for testing
+  - Parameters: environment, pipeline_id, instance_type, ssh_key
+  - Use for: Quick validation and debugging
+  - Outputs: Instance IP and DNS
+- **`manual-deploy-ecs.yaml`**: Deploy to ECS for production
+  - Parameters: environment, pipeline_id, stable_image_tag, candidate_image_tag
+  - Use for: Controlled production deployment
+  - Supports: Canary deployment configuration
+
+#### Management Workflows
+- **`prod-promote-to-stable.yaml`**: Promote canary to 100%
+  - Shifts all traffic from V2 → V1
+  - V2 becomes the new stable version
+  - Automated rollback on health check failures
+- **`cleanup-ec2.yaml`**: Destroy EC2 test instances
+  - Requires: Confirmation ("DESTROY")
+  - Removes: All EC2 resources to save costs
+- **`cleanup-ecs.yaml`**: Destroy ECS resources
+  - Use with caution: Production resource cleanup
+  - Full terraform destroy
+
+### Pipeline Stages
+
+**Complete Training Pipeline**:
+```
+1. Code Quality ✓
+   - Lint with ruff and black
+   - Type checking with mypy
+   - Unit tests with pytest
+
+2. Build & Push 🐳
+   - Build training image
+   - Build inference image
+   - Push to ECR
+
+3. Data Preprocessing 📊
+   - Load from S3
+   - Apply quality filters (3.9% removal)
+   - Tokenization
+   - Save to S3
+
+4. Model Training 🏋️
+   - Fine-tune with LoRA
+   - 4-bit quantization
+   - Save checkpoints
+   - Log to Wandb
+
+5. Model Evaluation 📈
+   - ROUGE, BLEU, BERTScore
+   - LLM-as-a-Judge
+   - Generate report
+   - Save to S3
+
+6. Model Export 📦
+   - Save Hugging Face format
+   - Upload to S3
+   - 3x faster than checkpoint loading
+
+7. Deployment 🚀
+   - Update ECS task definition
+   - Rolling update (or canary)
+   - Health checks
+   - Rollback on failure
+```
+
+### Canary Deployment Workflow
+
+**Safe Production Rollout**:
+```
+Step 1: Deploy V2 (10% traffic)
+├── V1 (stable): 90% traffic
+└── V2 (new): 10% traffic
+
+Step 2: Monitor Metrics (30-60 minutes)
+├── Check error rates
+├── Validate latency
+├── Review ROUGE scores
+└── Monitor user feedback
+
+Step 3: Decision Point
+├── Metrics Good → Increase to 25%, then 50%, then 100%
+├── Metrics Bad → Automatic rollback to 100% V1
+└── Manual override available
+
+Step 4: Promote to Stable
+└── V2 becomes V1, ready for next deployment
+```
+
+## 🐳 Containerization
+
+### Training Image (`Dockerfile.training`)
+```dockerfile
+FROM pytorch/pytorch:2.0.1-cuda11.8-cudnn8-runtime
+# SageMaker-compatible training environment
+# Includes: PyTorch, Transformers, PEFT, bitsandbytes, accelerate
+# Size: ~15GB with all dependencies
+# GPU: CUDA 11.8 support
+```
+
+**Key Features**:
+- SageMaker input/output structure
+- Environment variable configuration
+- Efficient layer caching
+- Multi-stage build (when applicable)
+
+### Inference Image (`Dockerfile.inference`)
+```dockerfile
+FROM 763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.0.1-gpu-py310-cu118-ubuntu20.04-sagemaker
+# FastAPI inference service
+# Optimized for production serving
+# Size: ~12GB
+```
+
+**Key Features**:
+- FastAPI with automatic OpenAPI docs
+- Health check endpoint
+- Model caching in memory
+- Graceful shutdown handling
+- Environment-based configuration
+
+### Hugging Face Format Benefits
+
+**Modern Inference Approach**:
+- ✅ **3x Faster Loading**: Direct model loading vs LoRA merging
+- ✅ **Standard Format**: Compatible with all HF tools
+- ✅ **Smaller Size**: No separate LoRA adapters needed
+- ✅ **Easy Distribution**: Upload to Hugging Face Hub
+
+**Checkpoint vs Hugging Face**:
+```python
+# Old way (slow)
+base_model = load_base_model()
+lora_adapters = load_checkpoint()
+model = merge_lora(base_model, lora_adapters)  # ~60 seconds
+
+# New way (fast)
+model = AutoModelForCausalLM.from_pretrained(path)  # ~20 seconds
+```
+
+## 📊 Monitoring & Logging
+
+### Logging
+- **Framework**: Loguru for structured logging
+- **Format**: JSON with timestamps and context
+- **Levels**: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- **Storage**: CloudWatch Logs (7-day retention for dev, 30-day for prod)
+- **Log Groups**: Separate for training, inference, and system
+
+### Metrics
+- **Training Metrics**: Loss, ROUGE, learning rate, GPU utilization
+- **Inference Metrics**: Latency (p50, p95, p99), throughput, error rates
+- **Business Metrics**: Request volume, summary quality scores
+- **System Metrics**: CPU, memory, GPU usage, disk I/O
+
+### Health Checks
+- **Model Loading**: Verify model is loaded and ready
+- **API Health**: `/health` endpoint with status code
+- **Dependency Health**: S3 access, GPU availability
+- **Resource Health**: Memory usage, GPU temperature
+
+### Wandb Integration
+```python
+# Training automatically logs to Wandb
+- Training loss per step
+- Validation ROUGE every N steps
+- Learning rate schedule
+- GPU memory usage
+- Model architecture
+- Hyperparameters
+```
+
+## 🧪 Testing Strategy
+
+### Test Types
+
+**Unit Tests** (`tests/unit/`):
+- `test_models.py`: Model loading and inference
+- `test_data.py`: Dataset and preprocessing
+- `test_metrics.py`: Evaluation metrics
+- `test_inference.py`: API endpoints
+
+**Integration Tests** (`tests/integration/`):
+- `test_preprocessing_pipeline.py`: End-to-end preprocessing
+- `test_training_pipeline.py`: Training workflow
+- `test_evaluation_pipeline.py`: Evaluation workflow
+- `test_inference_service.py`: API integration
+
+**End-to-End Tests** (`tests/e2e/`):
+- `test_full_pipeline.py`: Complete training pipeline
+- `test_inference_e2e.py`: Full inference workflow with model loading
+
+### Test Commands
+
+```bash
+# Run all tests with coverage
+make test
+
+# Run training-specific tests only
+make test-training
+
+# Run inference-specific tests only
+make test-inference
+
+# Run with specific environment
+make test ENV=staging
+
+# Run specific test file
+pytest tests/unit/test_models.py -v
+
+# Run with debugging output
+pytest tests/ -v -s
+```
+
+### Test Coverage
+- **Target**: >80% code coverage
+- **Current**: ~75% (monitored in CI/CD)
+- **Critical Paths**: 100% coverage for inference and data loading
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.9-3.10
 - Docker
 - AWS CLI configured
 - Terraform 1.6.6+
+- GPU (local) or AWS account
 
 ### Local Development
 
@@ -58,6 +653,7 @@ make install
 export OPENAI_API_KEY="your-openai-key"
 export WANDB_API_KEY="your-wandb-key"
 export HF_TOKEN="your-huggingface-token"
+export AWS_REGION="us-east-1"
 ```
 
 3. **Run tests:**
@@ -67,271 +663,172 @@ make test
 
 4. **Run local pipeline:**
 ```bash
+# Run with dev config (small dataset)
 make run ENV=dev
+
+# Run with custom config
+PYTHONPATH=. ENV=dev python scripts/run_pipeline.py
 ```
 
-## 📊 Data Pipeline
+### SageMaker Pipeline Deployment
 
-### Data Source
-- **Input**: ESPN NBA game recaps (CSV format)
-- **Location**: S3 bucket `nba-recap-summarization-model-source-data`
-- **Format**: `game_recaps_with_summaries.csv`
-
-### Preprocessing
-- **Text cleaning**: Remove special characters, normalize whitespace
-- **Tokenization**: Using LLaMA tokenizer with max length 2048
-- **Data splitting**: 50% train, 25% validation, 25% test
-- **Format**: Converted to Hugging Face datasets format
-
-### Training Data Structure
-```python
-{
-    "game_recap": "Lakers beat Suns 120-118 in overtime...",
-    "summary": "Lakers defeated Suns in overtime thriller...",
-    "game_id": "20240115-LAL-PHX"
-}
-```
-
-## 🤖 Model Architecture
-
-### Base Model
-- **Model**: `meta-llama/Llama-3.2-1B-Instruct`
-- **Quantization**: 4-bit (bitsandbytes)
-- **Memory**: ~2GB GPU memory usage
-
-### Fine-tuning Strategy
-- **Method**: LoRA (Low-Rank Adaptation)
-- **Parameters**: r=8, alpha=8, dropout=0.1
-- **Efficiency**: Only ~1% of parameters trained
-
-### Training Configuration
-```yaml
-training:
-  batch_size: 1
-  accumulate_grad_batches: 4
-  learning_rate: 1e-5
-  max_epochs: 3
-  precision: "16-mixed"
-  gradient_checkpointing: true
-```
-
-## 📈 Evaluation Metrics
-
-### Lexical Metrics
-- **ROUGE-1, ROUGE-2, ROUGE-L**: Measures n-gram overlap
-- **BLEU**: Precision-based evaluation
-
-### Semantic Metrics
-- **BERTScore**: Contextual similarity using BERT embeddings
-
-### LLM-as-a-Judge
-- **Relevance**: How well the summary captures key game events
-- **Factual Consistency**: Accuracy of information
-- **Completeness**: Coverage of important details
-- **Clarity**: Readability and coherence
-- **Conciseness**: Brevity while maintaining information
-
-## 🏭 Production Infrastructure
-
-### AWS Services
-- **SageMaker**: Training and evaluation pipelines
-- **ECS**: Container orchestration
-- **ECR**: Docker image registry
-- **S3**: Data and model storage
-- **ALB**: Load balancing
-- **VPC**: Network isolation
-
-### Deployment Environments
-
-#### Development (`dev`)
-- **Instance**: `ml.g4dn.xlarge`
-- **Deployment**: Direct deployment
-- **Testing**: Full test suite
-
-#### Staging (`staging`)
-- **Instance**: `ml.g4dn.xlarge`
-- **Deployment**: Direct deployment
-- **Validation**: Production-like testing
-
-#### Production (`prod`)
-- **Instance**: `ml.g4dn.xlarge`
-- **Deployment**: Canary deployment
-- **Monitoring**: Comprehensive logging
-
-### Terraform Infrastructure
-
-```hcl
-# Core components
-- VPC with public/private subnets
-- Application Load Balancer
-- ECS Cluster with Fargate
-- Auto Scaling Group
-- Security Groups
-- IAM Roles and Policies
-```
-
-## 🔄 CI/CD Pipeline
-
-### GitHub Actions Workflows
-
-#### `dev-train.yaml`
-1. **Test**: Run unit and integration tests
-2. **Build**: Create training and inference Docker images
-3. **Push**: Upload images to ECR
-4. **Trigger**: Start SageMaker pipeline
-5. **Deploy**: Update ECS service
-
-#### `staging-train.yaml`
-- Similar to dev with staging-specific configurations
-
-#### `prod-train.yaml`
-- **Canary Deployment**: Gradual rollout strategy
-- **Stable Image Check**: Uses existing stable image for primary traffic
-- **Rollback**: Automatic rollback on failures
-
-### Pipeline Stages
-
-1. **Preprocessing** (7-10 minutes)
-   - Data cleaning and tokenization
-   - Train/validation/test splitting
-
-2. **Training** (20-30 minutes)
-   - LoRA fine-tuning
-   - Checkpoint saving
-
-3. **Evaluation** (5-10 minutes)
-   - Comprehensive metrics calculation
-   - Performance benchmarking
-
-4. **Deployment** (2-5 minutes)
-   - ECS service update
-   - Health checks
-
-## 🐳 Containerization
-
-### Training Image (`Dockerfile.training`)
-```dockerfile
-FROM pytorch/pytorch:2.0.1-cuda11.8-cudnn8-runtime
-# SageMaker-compatible training environment
-# Includes: PyTorch, Transformers, PEFT, bitsandbytes
-```
-
-### Inference Image (`Dockerfile.inference`)
-```dockerfile
-FROM 763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.0.1-gpu-py310-cu118-ubuntu20.04-sagemaker
-# FastAPI inference service
-# Optimized for production serving
-```
-
-## 📊 Monitoring & Logging
-
-### Logging
-- **Structured Logging**: JSON format with loguru
-- **Log Levels**: DEBUG, INFO, WARNING, ERROR
-- **CloudWatch**: Centralized log aggregation
-
-### Metrics
-- **Training Metrics**: Loss, learning rate, GPU utilization
-- **Inference Metrics**: Latency, throughput, error rates
-- **Business Metrics**: Request volume, user satisfaction
-
-### Health Checks
-- **Model Loading**: Verify model is loaded and ready
-- **API Health**: Endpoint availability
-- **Resource Health**: CPU, memory, GPU usage
-
-## 🧪 Testing Strategy
-
-### Test Types
-- **Unit Tests**: Individual component testing
-- **Integration Tests**: Pipeline component interaction
-- **End-to-End Tests**: Full workflow validation
-- **Load Tests**: Performance under stress
-
-### Test Commands
+1. **Build and push Docker images:**
 ```bash
-# All tests
-make test
+# Set variables
+export ECR_REPOSITORY_URI="your-account.dkr.ecr.us-east-1.amazonaws.com/nba-recap"
+export IMAGE_TAG="dev-latest"
 
-# Training-specific tests
-make test-training
+# Build and push
+docker build -f Dockerfile.training -t $ECR_REPOSITORY_URI:$IMAGE_TAG .
+docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+```
 
-# Inference-specific tests
-make test-inference
+2. **Trigger SageMaker pipeline:**
+```bash
+make sagemaker-pipeline-trigger \
+  ENV=dev \
+  ECR_REPOSITORY_URI=$ECR_REPOSITORY_URI \
+  IMAGE_TAG=$IMAGE_TAG \
+  SAGEMAKER_ROLE_ARN=arn:aws:iam::account:role/SageMakerRole \
+  PIPELINE_RUN_ID=$(uuidgen)
+```
 
-# With coverage
-make test ENV=dev
+### EC2 Deployment (Testing)
+
+1. **Deploy via GitHub Actions:**
+```
+Actions → Manual EC2 Deployment → Run workflow
+- Environment: dev
+- Pipeline ID: <from SageMaker>
+- Instance Type: g4dn.xlarge
+- SSH Key Name: your-key
+```
+
+2. **Access and test:**
+```bash
+# Get instance IP from GitHub Actions output
+export INSTANCE_IP="1.2.3.4"
+
+# Test health
+curl http://$INSTANCE_IP:8000/health
+
+# Test inference
+curl -X POST "http://$INSTANCE_IP:8000/summarize_recap" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "game_recap": "Lakers beat Suns 120-118 in overtime...",
+    "max_length": 100
+  }'
+```
+
+3. **Cleanup:**
+```
+Actions → Cleanup EC2 Deployment → DESTROY
+```
+
+### ECS Deployment (Production)
+
+1. **Deploy infrastructure:**
+```bash
+cd terraform/envs/prod
+terraform init
+terraform apply
+```
+
+2. **Deploy via GitHub Actions:**
+```
+Actions → Manual ECS Deployment → Run workflow
+- Environment: prod
+- Pipeline ID: <from SageMaker>
+- Stable Image Tag: prod-stable
+```
+
+3. **Enable canary (optional):**
+```bash
+cd terraform/envs/prod
+terraform apply -var="enable_canary=true" \
+                -var="canary_weight_v1=90" \
+                -var="canary_weight_v2=10"
+```
+
+4. **Promote to stable:**
+```
+Actions → Promote Canary to Stable → Run workflow
 ```
 
 ## 🔧 Configuration Management
 
 ### Environment Configs
-- **`config.dev.yaml`**: Development settings
-- **`config.staging.yaml`**: Staging settings  
-- **`config.prod.yaml`**: Production settings
-- **`config.test.yaml`**: Test settings
+
+**LLaMA Configs**:
+- `config.dev.yaml`: 100 train, 20 val, 20 test samples
+- `config.staging.yaml`: 800 train, 100 val, 100 test samples
+- `config.prod.yaml`: 3500 train, 500 val, 500 test samples
+
+**Mistral Configs**:
+- `config.dev.mistral.yaml`: Mistral-7B for dev
+- `config.staging.mistral.yaml`: Mistral-7B for staging
+- `config.prod.mistral.yaml`: Mistral-7B for production
+
+**Phi Configs**:
+- `config.dev.phi.yaml`: Phi-3.5 for dev
+- `config.staging.phi.yaml`: Phi-3.5 for staging
+- `config.prod.phi.yaml`: Phi-3.5 for production
+
+**Test Configs**:
+- `config.test.yaml`: Minimal config for unit tests
+- `config.test.mistral.yaml`: Mistral test config
+- `config.test.phi.yaml`: Phi test config
 
 ### Key Configuration Options
+
 ```yaml
+# Model configuration
 model:
+  type: "llama"  # Options: llama, mistral, phi
   name: "meta-llama/Llama-3.2-1B-Instruct"
   quantization: true
-  max_length: 2048
+  quantization_type: "4bit"
+  max_length: 1536
 
+# Training configuration
 training:
   batch_size: 1
+  accumulate_grad_batches: 8
   learning_rate: 1e-5
   max_epochs: 3
+  precision: "16-mixed"
+  gradient_checkpointing: true
 
+# Data configuration
+data:
+  train_samples: 100  # -1 for all data
+  apply_quality_filters: true
+  min_summary_length: 10
+  min_recap_length: 50
+
+# Evaluation configuration
 evaluation:
   test_samples_lexical_metrics: 5
   test_samples_semantic_metrics: 5
   test_samples_ai_as_judge_metrics: 2
 ```
 
-## 🚀 Deployment Commands
-
-### Local Development
-```bash
-# Setup environment
-make create-venv && source .venv/bin/activate
-make install
-
-# Run tests
-make test
-
-# Run full pipeline
-make run ENV=dev
-```
-
-### SageMaker Pipeline
-```bash
-# Trigger training pipeline
-make sagemaker-pipeline-trigger \
-  ENV=dev \
-  ECR_REPOSITORY_URI=your-ecr-uri \
-  IMAGE_TAG=dev-latest \
-  SAGEMAKER_ROLE_ARN=your-role-arn
-```
-
-### Infrastructure
-```bash
-# Deploy infrastructure
-cd terraform/envs/dev
-terraform init
-terraform apply
-
-# Destroy infrastructure
-cd terraform/envs/dev
-terraform destroy
-```
-
 ## 📚 API Documentation
 
 ### Endpoints
 
-#### `GET /api`
+#### `GET /`
 Returns API information and available endpoints.
+
+**Response:**
+```json
+{
+  "message": "NBA Game Recap Summarizer API",
+  "version": "1.0.0",
+  "endpoints": ["/health", "/summarize_recap", "/docs"]
+}
+```
 
 #### `POST /summarize_recap`
 Generates a summary from an NBA game recap.
@@ -351,36 +848,80 @@ Generates a summary from an NBA game recap.
 }
 ```
 
+**Error Response:**
+```json
+{
+  "detail": "Error message here"
+}
+```
+
 #### `GET /health`
 Health check endpoint for monitoring.
 
+**Response:**
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "timestamp": "2025-10-11T12:00:00Z"
+}
+```
+
 ### Interactive Documentation
-- **Swagger UI**: `http://your-domain/`
+
+Once deployed, access:
+- **Swagger UI**: `http://your-domain/docs`
 - **ReDoc**: `http://your-domain/redoc`
+- **OpenAPI JSON**: `http://your-domain/openapi.json`
 
 ## 🔒 Security
 
 ### Authentication
-- **API Keys**: OpenAI, Weights & Biases, Hugging Face
-- **AWS IAM**: Role-based access control
-- **Container Security**: Non-root user, minimal base images
+- **API Keys**: Stored in GitHub Secrets and AWS Secrets Manager
+  - `OPENAI_API_KEY`: For LLM-as-a-Judge evaluation
+  - `WANDB_API_KEY`: For training metrics logging
+  - `HF_TOKEN`: For Hugging Face model access
+- **AWS IAM**: Role-based access control with least privilege
+- **Container Security**: Non-root user, read-only filesystem where possible
 
 ### Network Security
-- **VPC**: Isolated network environment
+- **VPC**: Isolated network environment (10.0.0.0/16)
+- **Private Subnets**: ECS tasks run in private subnets
 - **Security Groups**: Restrictive firewall rules
-- **HTTPS**: TLS encryption for all communications
+  - ALB: Only 80/443 from internet
+  - ECS: Only 8000 from ALB
+  - EC2: Only 22 (SSH) and 8000 (API) from allowed IPs
+- **HTTPS**: TLS 1.2+ encryption (production)
+
+### Data Security
+- **S3 Encryption**: Server-side encryption (SSE-S3)
+- **EBS Encryption**: Encrypted volumes for EC2 and ECS
+- **Secrets**: Never in code, always in Secrets Manager
+- **Logging**: No PII in logs
 
 ## 📈 Performance Optimization
 
 ### Memory Optimization
-- **4-bit Quantization**: Reduces memory usage by ~75%
+- **4-bit Quantization**: Reduces memory by ~75%
 - **Gradient Checkpointing**: Trades compute for memory
-- **Mixed Precision**: 16-bit training for efficiency
+- **Mixed Precision**: 16-bit (bf16/fp16) training
+- **Memory Clearing**: Clear GPU cache every 10 batches
+- **Optimized Sequence Length**: 1536 tokens (vs 2048)
+- **CUDA Configuration**: `expandable_segments:True`
 
 ### Inference Optimization
-- **Batch Processing**: Multiple requests per batch
-- **Model Caching**: Keep model in memory
-- **Connection Pooling**: Reuse HTTP connections
+- **Model Caching**: Keep model in GPU memory
+- **Batch Processing**: Multiple requests per batch (when applicable)
+- **Hugging Face Format**: 3x faster loading than checkpoints
+- **KV Cache**: Enabled for faster generation
+- **Torch Compile**: Future optimization opportunity
+
+### Cost Optimization
+- **EC2 On-Demand**: Only run when testing
+- **ECS Auto-Scaling**: Scale down during low traffic
+- **Spot Instances**: Consider for non-critical workloads
+- **S3 Lifecycle**: Move old artifacts to Glacier
+- **Right-Sizing**: Use appropriate instance types
 
 ## 🐛 Troubleshooting
 
@@ -388,52 +929,135 @@ Health check endpoint for monitoring.
 
 #### CUDA Out of Memory
 ```bash
-# Reduce batch size in config
-batch_size: 1
-accumulate_grad_batches: 4
+# Solution 1: Reduce batch size in config
+training:
+  batch_size: 1
+  accumulate_grad_batches: 4
+
+# Solution 2: Reduce sequence length
+model:
+  max_length: 1024
+
+# Solution 3: Enable gradient checkpointing
+training:
+  gradient_checkpointing: true
 ```
 
 #### Model Loading Errors
 ```bash
-# Check model path and permissions
-aws s3 ls s3://your-bucket/model-path/
+# Check model path
+aws s3 ls s3://nba-recap-summarization-model-dev/
+
+# Verify HF token
+echo $HF_TOKEN
+
+# Check logs
+docker logs <container-id>
 ```
 
 #### API Timeout
 ```bash
 # Check ECS service health
-aws ecs describe-services --cluster your-cluster --services your-service
+aws ecs describe-services \
+  --cluster nba-recap-prod-cluster \
+  --services nba-recap-prod-v1-service
+
+# Check task logs
+aws logs tail /ecs/nba-recap-prod --follow
+```
+
+#### Data Quality Issues
+```bash
+# Check filtering statistics
+grep "removed_samples" logs/nba_recap.log
+
+# Adjust quality filters in config
+data:
+  min_summary_length: 5  # Lower if too strict
+  max_length_ratio: 0.9  # Higher to keep more data
+```
+
+#### EC2 Deployment Failures
+```bash
+# SSH into instance
+ssh -i your-key.pem ec2-user@<instance-ip>
+
+# Check service status
+sudo systemctl status nba-inference
+
+# Check Docker logs
+sudo docker logs $(sudo docker ps -q)
+
+# Check deployment logs
+sudo tail -f /var/log/nba-inference-deployment.log
 ```
 
 ### Debug Commands
-```bash
-# Check logs
-docker logs container-name
 
-# Monitor resources
+```bash
+# Check system resources
 htop
 nvidia-smi
+df -h
 
-# Test API
-curl -X POST http://localhost:8000/summarize_recap \
+# Test model locally
+python -c "from src.nba_game_recap_summarizer.api.inference import load_model; load_model()"
+
+# Test API locally
+curl -X POST "http://localhost:8000/summarize_recap" \
   -H "Content-Type: application/json" \
   -d '{"game_recap": "Test recap"}'
+
+# Monitor GPU memory
+watch -n 1 nvidia-smi
+
+# Check Python environment
+pip list | grep -E "torch|transformers|peft"
 ```
 
 ## 🤝 Contributing
 
 ### Development Workflow
-1. Fork the repository
-2. Create a feature branch
-3. Make changes with tests
-4. Run `make check` to validate
-5. Submit a pull request
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+3. **Make changes with tests**
+4. **Run quality checks**: `make check`
+5. **Commit your changes**: `git commit -m 'Add amazing feature'`
+6. **Push to the branch**: `git push origin feature/amazing-feature`
+7. **Submit a pull request**
 
 ### Code Standards
-- **Formatting**: Black + Ruff
-- **Type Hints**: MyPy compliance
-- **Testing**: Pytest with coverage
-- **Documentation**: Docstrings and comments
+
+- **Formatting**: Black (line length 88) + Ruff
+- **Type Hints**: MyPy compliance required
+- **Testing**: Pytest with >80% coverage
+- **Documentation**: Docstrings for all public functions/classes
+- **Commit Messages**: Clear, descriptive messages
+
+### Running Quality Checks
+
+```bash
+# Format code
+make format
+
+# Run linters
+make lint
+
+# Run tests with coverage
+make test
+
+# Run everything
+make check
+```
+
+## 📚 Additional Documentation
+
+- **[EC2 Deployment Guide](docs/EC2_DEPLOYMENT.md)** - Complete guide for EC2 testing deployment
+- **[Debugging Documentation](NBA_GAME_RECAP_DEBUGGING_DOCUMENTATION.md)** - Journey from gibberish to coherent summaries
+- **[Migration Guide](MIGRATION_GUIDE.md)** - PyTorch Lightning → Pure PyTorch migration
+- **[Terraform README](terraform/README.md)** - Infrastructure as Code details
+- **[Multi-Model Testing Guide](docs/MULTI_MODEL_TESTING.md)** - Testing guide for all models (LLaMA, Mistral, Phi)
 
 ## 📄 License
 
@@ -441,18 +1065,31 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- **Meta AI**: For the LLaMA 3.2 model
-- **Hugging Face**: For the Transformers library
+- **Meta AI**: For the LLaMA 3.2 models
+- **Mistral AI**: For Mistral-7B model
+- **Microsoft**: For Phi-3.5 model
+- **Hugging Face**: For Transformers library and model hub
 - **AWS**: For SageMaker and infrastructure services
-- **PyTorch Lightning**: For training framework
-- **FastAPI**: For the inference API
+- **PyTorch**: For deep learning framework
+- **FastAPI**: For high-performance inference API
+- **Community**: For open-source ML tools and libraries
 
 ## 📞 Support
 
 For questions or issues:
-- **Issues**: GitHub Issues
-- **Discussions**: GitHub Discussions
-- **Documentation**: This README and inline docs
+- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-repo/discussions)
+- **Documentation**: This README and linked docs
+
+## 🎯 Project Status
+
+- ✅ **Data Quality**: 3.9% corrupted data cleaned
+- ✅ **Model Training**: Achieving 20.6% ROUGE-1 score
+- ✅ **EC2 Deployment**: Fully automated with GitHub Actions
+- ✅ **ECS Deployment**: Production-ready with auto-scaling
+- ✅ **Canary Deployment**: Gradual rollout with rollback
+- ✅ **Multi-Model Support**: LLaMA, Mistral, Phi
+- 🚧 **Future**: Model compression, more LLMs, batch inference
 
 ---
 
