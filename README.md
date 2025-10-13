@@ -282,11 +282,11 @@ training:
 - **Evaluates**: Semantic meaning beyond word overlap
 
 ### LLM-as-a-Judge (GPT-4)
-- **Relevance**: How well summary captures key game events (0-10)
-- **Factual Consistency**: Accuracy of information (0-10)
-- **Completeness**: Coverage of important details (0-10)
-- **Clarity**: Readability and coherence (0-10)
-- **Conciseness**: Brevity while maintaining information (0-10)
+- **Relevance**: How well summary captures key game events (1-5)
+- **Factual Consistency**: Accuracy of information (1-5)
+- **Completeness**: Coverage of important details (1-5)
+- **Clarity**: Readability and coherence (1-5)
+- **Conciseness**: Brevity while maintaining information (1-5)
 
 ## 🏆 Production Performance Results
 
@@ -302,11 +302,11 @@ training:
 ### AI Judge Evaluation (GPT-4)
 | Quality Dimension | Score | Interpretation |
 |-------------------|-------|----------------|
-| **Relevance** | **3.31/4.0** | Highly relevant to game events |
-| **Clarity** | **3.29/4.0** | Very clear and readable |
-| **Conciseness** | **3.07/4.0** | Appropriately concise |
-| **Factual Consistency** | **3.00/4.0** | Accurate information |
-| **Completeness** | **3.00/4.0** | Covers key details |
+| **Relevance** | **3.31/5.0** | Highly relevant to game events |
+| **Clarity** | **3.29/5.0** | Very clear and readable |
+| **Conciseness** | **3.07/5.0** | Appropriately concise |
+| **Factual Consistency** | **3.00/5.0** | Accurate information |
+| **Completeness** | **3.00/5.0** | Covers key details |
 
 ### Technical Specifications
 | Specification | Value | Details |
@@ -318,7 +318,7 @@ training:
 ### Quality Assessment
 - ✅ **Excellent ROUGE Score**: 28.99% indicates strong summarization quality
 - ✅ **High Semantic Similarity**: 83.43% BERTScore shows good meaning preservation
-- ✅ **Good AI Judge Scores**: All dimensions score 3.0+ (75%+ quality)
+- ✅ **Good AI Judge Scores**: All dimensions score 3.0+ (60%+ quality)
 - ✅ **Reasonable Latency**: 6.5s suitable for real-time applications
 
 ### Evaluation Results
