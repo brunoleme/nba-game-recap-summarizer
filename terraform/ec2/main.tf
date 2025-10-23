@@ -33,19 +33,87 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+# Try to find Deep Learning AMI with multiple patterns
 data "aws_ami" "gpu_ami" {
   most_recent = true
   owners      = ["amazon"]
 
   filter {
     name   = "name"
-    values = ["Deep Learning AMI GPU PyTorch 2.0.* (Ubuntu 20.04) *"]
+    values = [
+      "Deep Learning AMI GPU PyTorch 2.* (Ubuntu 20.04) *",
+      "Deep Learning AMI GPU PyTorch 2.* (Ubuntu 22.04) *",
+      "Deep Learning AMI GPU PyTorch 3.* (Ubuntu 20.04) *",
+      "Deep Learning AMI GPU PyTorch 3.* (Ubuntu 22.04) *",
+      "Deep Learning AMI GPU PyTorch 2.* (Ubuntu 20.04) *",
+      "Deep Learning AMI GPU PyTorch 2.* (Ubuntu 22.04) *"
+    ]
   }
 
   filter {
     name   = "virtualization-type"
     values = ["hvm"]
   }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
+# Alternative Deep Learning AMI search with different naming pattern
+# This is optional and will be skipped if no matching AMIs are found
+data "aws_ami" "gpu_ami_alt" {
+  count       = 0  # Disable this for now since the pattern doesn't exist
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = [
+      "Deep Learning AMI (Ubuntu 20.04) Version *",
+      "Deep Learning AMI (Ubuntu 22.04) Version *"
+    ]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
+# Fallback to standard Ubuntu AMI if Deep Learning AMI is not available
+data "aws_ami" "ubuntu_ami" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = [
+      "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*",
+      "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+    ]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
+# Select the best available AMI with fallback logic
+locals {
+  selected_ami = data.aws_ami.gpu_ami.id != "" ? data.aws_ami.gpu_ami.id : data.aws_ami.ubuntu_ami.id
 }
 
 # VPC and Networking
@@ -209,7 +277,7 @@ locals {
 
 # EC2 Instance
 resource "aws_instance" "inference" {
-  ami                    = data.aws_ami.gpu_ami.id
+  ami                    = local.selected_ami
   instance_type          = var.instance_type
   key_name               = var.ssh_key_name
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
@@ -260,4 +328,19 @@ output "vpc_id" {
 output "subnet_id" {
   description = "ID of the public subnet"
   value       = aws_subnet.public.id
+}
+
+output "selected_ami_id" {
+  description = "ID of the selected AMI"
+  value       = local.selected_ami
+}
+
+output "ami_name" {
+  description = "Name of the selected AMI"
+  value       = data.aws_ami.gpu_ami.id != "" ? data.aws_ami.gpu_ami.name : data.aws_ami.ubuntu_ami.name
+}
+
+output "ami_type" {
+  description = "Type of AMI selected (GPU or Ubuntu)"
+  value       = data.aws_ami.gpu_ami.id != "" ? "GPU" : "Ubuntu"
 }
