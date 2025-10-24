@@ -91,6 +91,13 @@ source_data.csv
 game_recaps_with_summaries.csv
 tests/resources/source_data/game_recaps_with_summaries.csv
 
+# Preference learning datasets (too large for git)
+preference_learning_experiments/data/*.csv
+
+# Test and debug CSV files
+test_*.csv
+debug_*.csv
+
 # Large model artifacts
 tests/resources/artifacts/pipeline_id/
 tests/resources/artifacts/best_model*.ckpt

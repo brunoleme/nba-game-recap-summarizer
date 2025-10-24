@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir \
 RUN uv pip install --system -e .
 
 # Create model directory for Hugging Face models
-RUN mkdir -p /app/models/hf_model
+RUN mkdir -p /app/models/hf_model_merged
 
 # Set environment variable for Python module resolution
 ENV PYTHONPATH=/app
