@@ -68,7 +68,7 @@ def train(cfg: DictConfig):
 
     # Save final model in Hugging Face format
     logger.info("Saving model in Hugging Face format")
-    hf_save_path = os.path.join(cfg.training.model_artifact_dir, f"{pipeline_run_id}/hf_model")
+    hf_save_path = os.path.join(cfg.training.model_artifact_dir, f"{pipeline_run_id}/hf_model_merged")
 
     if getattr(model, "peft_method", None) == "lora":
         try:
