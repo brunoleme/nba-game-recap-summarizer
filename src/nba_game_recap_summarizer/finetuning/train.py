@@ -83,12 +83,19 @@ def train(cfg: DictConfig):
         # CRITICAL: Save the original unquantized model for KTO training
         if hasattr(model, 'original_model') and model.original_model is not None:
             logger.info("Saving original unquantized model for KTO training...")
+            # Fix generation_config before saving
+            if hasattr(model.original_model, 'generation_config'):
+                model.original_model.generation_config.pad_token_id = model.tokenizer.pad_token_id
             model.original_model.save_pretrained(base_dir)
             logger.info("✅ Original unquantized base model saved for KTO training")
         else:
             # Fallback: save the quantized model (not ideal for KTO)
             logger.warning("No original model found - saving quantized model (may cause KTO loading issues)")
-            model.model.get_base_model().save_pretrained(base_dir)
+            base_model = model.model.get_base_model()
+            # Fix generation_config before saving
+            if hasattr(base_model, 'generation_config'):
+                base_model.generation_config.pad_token_id = model.tokenizer.pad_token_id
+            base_model.save_pretrained(base_dir)
             logger.warning("NOTE: Base model is quantized - may cause loading issues for KTO training")
         
         # Save adapters only
@@ -97,9 +104,15 @@ def train(cfg: DictConfig):
     else:
         # No PEFT: just save base
         if hasattr(model, 'original_model') and model.original_model is not None:
+            # Fix generation_config before saving
+            if hasattr(model.original_model, 'generation_config'):
+                model.original_model.generation_config.pad_token_id = model.tokenizer.pad_token_id
             model.original_model.save_pretrained(base_dir)
             logger.info("Original unquantized base model saved (no PEFT)")
         else:
+            # Fix generation_config before saving
+            if hasattr(model.model, 'generation_config'):
+                model.model.generation_config.pad_token_id = model.tokenizer.pad_token_id
             model.model.save_pretrained(base_dir)
             logger.info("Base model saved (no PEFT)")
 
@@ -107,9 +120,15 @@ def train(cfg: DictConfig):
     try:
         if isinstance(model.model, PeftModel):
             merged = model.model.merge_and_unload()
+            # Fix generation_config before saving
+            if hasattr(merged, 'generation_config'):
+                merged.generation_config.pad_token_id = model.tokenizer.pad_token_id
             merged.save_pretrained(merged_dir)
             logger.info("Merged model saved for inference")
         else:
+            # Fix generation_config before saving
+            if hasattr(model.model, 'generation_config'):
+                model.model.generation_config.pad_token_id = model.tokenizer.pad_token_id
             model.model.save_pretrained(merged_dir)
             logger.info("Model saved for inference")
     except Exception as e:
