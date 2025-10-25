@@ -6,7 +6,7 @@ logging:
 model:
   type: "llama"
   name: "meta-llama/Llama-3.2-1B-Instruct"  # Switch to LLaMA-3.2-1B for better performance
-  quantization: true
+  quantization: false  # Disabled for full precision LoRA
   quantization_type: "4bit"
   peft_method: "lora"
   max_length: 1536  # Optimized for memory efficiency
