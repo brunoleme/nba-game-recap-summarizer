@@ -66,23 +66,45 @@ def train(cfg: DictConfig):
     trainer = SummarizationModelTrainer(model, dataloaders, cfg)
     trainer.train()
 
-    # Save final model in Hugging Face format
+    # Save final model in Hugging Face format - BOTH merged and unmerged for KTO compatibility
     logger.info("Saving model in Hugging Face format")
-    hf_save_path = os.path.join(cfg.training.model_artifact_dir, f"{pipeline_run_id}/hf_model_merged")
+    hf_root = os.path.join(cfg.training.model_artifact_dir, f"{pipeline_run_id}")
+    base_dir = os.path.join(hf_root, "hf_model_base")
+    adapters_dir = os.path.join(hf_root, "hf_model_adapters")
+    merged_dir = os.path.join(hf_root, "hf_model_merged")
 
-    if getattr(model, "peft_method", None) == "lora":
-        try:
-            merged = model.model.merge_and_unload()  # merge LoRA into base weights
-            merged.save_pretrained(hf_save_path)
-            logger.info("Merged LoRA into base and saved.")
-        except Exception as e:
-            logger.warning(f"merge_and_unload failed ({e}). Saving base + adapters separately.")
-            model.model.save_pretrained(hf_save_path)      # base
+    # (A) Always save tokenizer once
+    model.tokenizer.save_pretrained(base_dir)
+    logger.info("Tokenizer saved to base directory")
+
+    # (B) Save UNMERGED for future fine-tuning (KTO training)
+    from peft import PeftModel
+    if isinstance(model.model, PeftModel):
+        # Save base model
+        model.model.get_base_model().save_pretrained(base_dir)
+        logger.info("Base model saved for KTO training")
+        
+        # Save adapters only
+        model.model.save_pretrained(adapters_dir)
+        logger.info("LoRA adapters saved for KTO training")
     else:
-        model.model.save_pretrained(hf_save_path)
+        # No PEFT: just save base
+        model.model.save_pretrained(base_dir)
+        logger.info("Base model saved (no PEFT)")
 
-    model.tokenizer.save_pretrained(hf_save_path)
-    logger.success("Model saved successfully")
+    # (C) Also save MERGED copy for inference
+    try:
+        if isinstance(model.model, PeftModel):
+            merged = model.model.merge_and_unload()
+            merged.save_pretrained(merged_dir)
+            logger.info("Merged model saved for inference")
+        else:
+            model.model.save_pretrained(merged_dir)
+            logger.info("Model saved for inference")
+    except Exception as e:
+        logger.warning(f"Could not save merged model: {e}")
+
+    logger.success("Model saved successfully - both training and inference formats available")
 
     # Log final metrics (skip in test environments)
     if not os.getenv("SKIP_WANDB", "false").lower() == "true":
