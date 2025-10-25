@@ -44,6 +44,9 @@ class BaseRecapSummarizationModel(nn.Module, ABC):
         
         # Device management
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Store original unquantized model for KTO training
+        self.original_model = None
 
         logger.info(f"Initializing model: {model_name} ({model_type}), PEFT Method: {peft_method}, Quantization: {use_quantization}")
 

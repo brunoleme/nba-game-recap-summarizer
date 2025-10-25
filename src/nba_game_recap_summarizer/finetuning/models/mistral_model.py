@@ -63,6 +63,19 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
         try:
             if use_quantization and self.quantization_config:
                 logger.info(f"Initializing Mistral with: {name}, quantization: {self.quantization_type}")
+                
+                # CRITICAL: Store the original unquantized model for KTO training
+                logger.info("Loading original unquantized model for KTO compatibility...")
+                original_model = AutoModelForCausalLM.from_pretrained(
+                    name,
+                    device_map="cpu",  # Load on CPU first to avoid memory issues
+                    torch_dtype="auto",
+                )
+                # Store reference to original model
+                self.original_model = original_model
+                logger.info("Original unquantized model stored for KTO training")
+                
+                # Now load the quantized model for training
                 model = AutoModelForCausalLM.from_pretrained(
                     name,
                     device_map="cuda:0",  # Load on first GPU, then use DataParallel
@@ -78,6 +91,8 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                     device_map="cuda:0" if torch.cuda.is_available() else "cpu",  # Load on first GPU, then use DataParallel
                     torch_dtype="auto",
                 )
+                # No quantization, so original model is the same
+                self.original_model = None
         except ImportError as e:
             logger.warning(f"Quantization failed: {str(e)}. Falling back to CPU mode")
             model = AutoModelForCausalLM.from_pretrained(
@@ -85,6 +100,7 @@ class MistralRecapSummarizationModel(BaseRecapSummarizationModel):
                 device_map="cpu",
                 torch_dtype="auto",
             )
+            self.original_model = None
 
         # Apply PEFT if configured (Base sets proper CAUSAL_LM + target_modules for Mistral)
         if peft_method and self.peft_config:
