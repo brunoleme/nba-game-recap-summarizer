@@ -80,17 +80,28 @@ def train(cfg: DictConfig):
     # (B) Save UNMERGED for future fine-tuning (KTO training)
     from peft import PeftModel
     if isinstance(model.model, PeftModel):
-        # Save base model
-        model.model.get_base_model().save_pretrained(base_dir)
-        logger.info("Base model saved for KTO training")
+        # CRITICAL: Save the original unquantized model for KTO training
+        if hasattr(model, 'original_model') and model.original_model is not None:
+            logger.info("Saving original unquantized model for KTO training...")
+            model.original_model.save_pretrained(base_dir)
+            logger.info("✅ Original unquantized base model saved for KTO training")
+        else:
+            # Fallback: save the quantized model (not ideal for KTO)
+            logger.warning("No original model found - saving quantized model (may cause KTO loading issues)")
+            model.model.get_base_model().save_pretrained(base_dir)
+            logger.warning("NOTE: Base model is quantized - may cause loading issues for KTO training")
         
         # Save adapters only
         model.model.save_pretrained(adapters_dir)
         logger.info("LoRA adapters saved for KTO training")
     else:
         # No PEFT: just save base
-        model.model.save_pretrained(base_dir)
-        logger.info("Base model saved (no PEFT)")
+        if hasattr(model, 'original_model') and model.original_model is not None:
+            model.original_model.save_pretrained(base_dir)
+            logger.info("Original unquantized base model saved (no PEFT)")
+        else:
+            model.model.save_pretrained(base_dir)
+            logger.info("Base model saved (no PEFT)")
 
     # (C) Also save MERGED copy for inference
     try:
