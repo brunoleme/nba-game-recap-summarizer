@@ -37,6 +37,14 @@ graph TB
     O --> G
 ```
 
+## 🧪 Experimental Features
+
+### Preference Learning Experiments
+- **Location**: `preference_learning_experiments/`
+- **Purpose**: Experimental KTO (Kahneman-Tversky Optimization) implementation
+- **Features**: Narrative style scoring, preference learning, Colab integration
+- **Status**: Experimental - will be moved to `src/` when ready for production
+
 ## 🚀 Deployment Options
 
 ### EC2 Deployment - Testing & Debugging

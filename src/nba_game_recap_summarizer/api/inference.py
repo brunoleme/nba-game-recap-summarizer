@@ -29,8 +29,8 @@ async def load_model():
     try:
         global model
         
-        # Try to load from Hugging Face format first
-        hf_model_path = "/app/models/hf_model"
+        # Load from Hugging Face format
+        hf_model_path = "/app/models/hf_model_merged"
         if os.path.exists(hf_model_path) and os.path.exists(os.path.join(hf_model_path, "config.json")):
             logger.info(f"Loading model from Hugging Face format: {hf_model_path}")
             from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -65,35 +65,38 @@ async def load_model():
                 bucket_name = s3_path.split("/")[2]
                 key = "/".join(s3_path.split("/")[3:])
                 
-                # Create local directory
-                os.makedirs(hf_model_path, exist_ok=True)
+                # Download hf_model_merged from S3
+                s3_path = f"{key}/hf_model_merged"
+                local_path = "/app/models/hf_model_merged"
+                os.makedirs(local_path, exist_ok=True)
                 
-                # Download from S3
                 s3_client = boto3.client('s3')
-                logger.info(f"Downloading model from S3: s3://{bucket_name}/{key}")
+                logger.info(f"Downloading model from S3: s3://{bucket_name}/{s3_path}")
                 
-                # Try to download as a directory (multiple files)
-                try:
-                    paginator = s3_client.get_paginator('list_objects_v2')
-                    pages = paginator.paginate(Bucket=bucket_name, Prefix=key)
-                    
-                    for page in pages:
-                        if 'Contents' in page:
-                            for obj in page['Contents']:
-                                file_key = obj['Key']
-                                local_file_path = os.path.join(hf_model_path, file_key.replace(key, '').lstrip('/'))
-                                os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-                                s3_client.download_file(bucket_name, file_key, local_file_path)
-                    
-                    logger.info("Model downloaded successfully from S3")
+                # Download as a directory (multiple files)
+                paginator = s3_client.get_paginator('list_objects_v2')
+                pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_path)
+                
+                files_downloaded = 0
+                for page in pages:
+                    if 'Contents' in page:
+                        for obj in page['Contents']:
+                            file_key = obj['Key']
+                            local_file_path = os.path.join(local_path, file_key.replace(s3_path, '').lstrip('/'))
+                            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                            s3_client.download_file(bucket_name, file_key, local_file_path)
+                            files_downloaded += 1
+                
+                if files_downloaded > 0:
+                    logger.info(f"Model downloaded successfully from S3 ({files_downloaded} files)")
                     
                     # Load the downloaded model
                     from transformers import AutoTokenizer, AutoModelForCausalLM
                     import torch
                     
-                    tokenizer = AutoTokenizer.from_pretrained(hf_model_path)
+                    tokenizer = AutoTokenizer.from_pretrained(local_path)
                     model_hf = AutoModelForCausalLM.from_pretrained(
-                        hf_model_path,
+                        local_path,
                         torch_dtype=torch.float16,
                         device_map="auto"
                     )
@@ -103,10 +106,13 @@ async def load_model():
                         tokenizer=tokenizer,
                         model_hf=model_hf
                     )
+                else:
+                    logger.error("No files found in S3 path")
+                    raise RuntimeError("No model found in S3")
                     
-                except Exception as e:
-                    logger.error(f"Failed to download model from S3: {str(e)}")
-                    raise
+            except Exception as e:
+                logger.error(f"Failed to download model from S3: {str(e)}")
+                raise
             else:
                 # Fallback to checkpoint loading
                 logger.info(f"Loading model from checkpoint: {settings.model_path}")
