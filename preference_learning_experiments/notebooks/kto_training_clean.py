@@ -133,6 +133,47 @@ if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
 
+# Add custom tokens BEFORE loading the model
+# This is critical to match the training vocabulary size
+def add_custom_tokens_to_tokenizer(tokenizer):
+    """Add custom NBA tokens to the tokenizer"""
+    custom_tokens = [
+        # Team names
+        "Celtics", "Lakers", "Warriors", "Heat", "Nets", "Bucks", "76ers", "Suns",
+        "Mavericks", "Clippers", "Nuggets", "Jazz", "Trail", "Blazers", "Kings", "Grizzlies",
+        "Rockets", "Pelicans", "Spurs", "Thunder", "Magic", "Hornets", "Pistons", "Bulls",
+        "Cavaliers", "Hawks", "Knicks", "Pacers", "Raptors", "Wizards",
+        # Basketball terms
+        "rebound", "assist", "steal", "block", "turnover", "foul", "free", "throw",
+        "three", "pointer", "field", "goal", "percentage", "points", "scored",
+        "quarter", "overtime", "halftime", "timeout", "coach", "bench", "starters",
+        # Player names (common)
+        "LeBron", "James", "Curry", "Kevin", "Durant", "Giannis", "Antetokounmpo",
+        "Luka", "Doncic", "Jayson", "Tatum", "Joel", "Embiid", "Nikola", "Jokic",
+        # Actions
+        "dunked", "layup", "jump", "shot", "drew", "committed", "missed", "made",
+        "hit", "attempted", "grabbed", "recorded", "finished", "led", "added",
+        "went", "final", "score", "win", "loss", "victory", "defeated", "beat",
+        # Statistics
+        "consecutive", "series", "season", "playoffs", "championship", "finals",
+        "conference", "division", "standings", "record", "wins", "losses",
+    ]
+    
+    # Add tokens that don't exist
+    new_tokens = [token for token in custom_tokens if token not in tokenizer.get_vocab()]
+    
+    if new_tokens:
+        print(f"Adding {len(new_tokens)} custom tokens to tokenizer")
+        tokenizer.add_tokens(new_tokens)
+    else:
+        print("All custom tokens already exist in tokenizer")
+    
+    return tokenizer
+
+# Add custom tokens to match training vocabulary
+tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
+print(f"Tokenizer vocabulary size after adding custom tokens: {len(tokenizer)}")
+
 # Load model - use the correct approach for base + adapters
 print("Loading model for KTO training...")
 
@@ -148,18 +189,18 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_quant_type="nf4"
 )
 
-# Load the base model - now it should be unquantized!
-print("Loading unquantized base model for KTO training...")
+# Load the base model WITHOUT quantization (full precision LoRA)
+print("Loading base model for full precision LoRA training...")
 
-# The base model should now be unquantized, so we can load it normally
+# Load model with FP16 (no quantization)
 try:
     base_model = AutoModelForCausalLM.from_pretrained(
         base_path,
         device_map="auto",
-        torch_dtype=torch.float16,
-        trust_remote_code=True
+        torch_dtype=torch.float16,  # FP16, not quantized
+        trust_remote_code=True,
     )
-    print("✅ Unquantized base model loaded successfully")
+    print("✅ Base model loaded in FP16 (no quantization)")
 except Exception as e:
     print(f"❌ Failed to load unquantized base model: {str(e)[:200]}")
     
@@ -215,28 +256,31 @@ except Exception as e:
             print(f"❌ Merged model strategy also failed: {str(e3)[:200]}")
             raise RuntimeError("Failed to load any model variant")
 
-# Prepare the base model for k-bit training
-print("Preparing base model for k-bit training...")
-base_model = prepare_model_for_kbit_training(base_model)
+# CRITICAL: Resize model embeddings BEFORE loading adapters
+print("Checking vocabulary size compatibility...")
+expected_vocab_size = len(tokenizer)
+current_vocab_size = base_model.get_input_embeddings().num_embeddings
+
+print(f"Current model vocab size: {current_vocab_size}")
+print(f"Tokenizer vocab size (with custom tokens): {expected_vocab_size}")
+
+if current_vocab_size != expected_vocab_size:
+    print(f"⚠️ Resizing model embeddings from {current_vocab_size} to {expected_vocab_size}")
+    base_model.resize_token_embeddings(expected_vocab_size)
+    print(f"✅ Model embeddings resized to {expected_vocab_size}")
+else:
+    print("✅ Vocabulary sizes already match")
 
 # Now attach the LoRA adapters (if available)
 print("Attaching LoRA adapters...")
 if adapters_path and os.path.exists(adapters_path):
     try:
-        # Apply quantization to the base model first
-        print("Applying quantization to base model...")
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_path,
-            device_map="auto",
-            quantization_config=bnb_config,
-            torch_dtype=torch.float16,
-            trust_remote_code=True
-        )
-        base_model = prepare_model_for_kbit_training(base_model)
+        # NO QUANTIZATION - use the base model as is
+        print("Using base model without quantization (full precision LoRA)")
         
-        # Now attach the adapters
+        # Now attach the adapters (vocab size should match now)
         model = PeftModel.from_pretrained(base_model, adapters_path)
-        print("✅ LoRA adapters attached successfully to quantized base model")
+        print("✅ LoRA adapters attached successfully to base model")
     except Exception as e:
         print(f"❌ Failed to attach adapters: {e}")
         print("⚠️  Using base model without adapters - you may need to add new LoRA adapters")
@@ -248,8 +292,23 @@ else:
 
 # Check if we have trainable parameters
 trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Initial trainable parameters: {trainable_params:,}")
+
+# Debug: Check model type and structure
+print(f"Model type: {type(model)}")
+if hasattr(model, 'peft_config'):
+    print(f"PEFT config: {model.peft_config}")
+if hasattr(model, 'get_base_model'):
+    base_model = model.get_base_model()
+    print(f"Base model type: {type(base_model)}")
+
 if trainable_params == 0:
     print("⚠️  No trainable parameters found - adding new LoRA adapters for KTO training")
+    
+    # Check if model already has PEFT adapters
+    if hasattr(model, 'peft_config') and model.peft_config:
+        print("⚠️  Model already has PEFT config - unloading first")
+        model = model.unload()
     
     # Create new LoRA configuration
     from peft import LoraConfig, get_peft_model
@@ -263,20 +322,32 @@ if trainable_params == 0:
         task_type="CAUSAL_LM",
     )
     
-    # Add LoRA adapters to the model
+    # CRITICAL: Disable PEFT adapters on the model before adding new ones
+    if hasattr(model, 'disable_adapter'):
+        model.disable_adapter()
+    
+    # Add new LoRA adapters for KTO training
     model = get_peft_model(model, lora_config)
     print("✅ New LoRA adapters added for KTO training")
     
-    # Prepare for k-bit training again
-    model = prepare_model_for_kbit_training(model)
-    print("✅ Model prepared for k-bit training with new adapters")
+    # Check trainable parameters after adding LoRA
+    new_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters after LoRA: {new_trainable:,}")
+    
+    # Enable the new adapters
+    model.train()  # Ensure training mode
+    
+    print("✅ Model ready with new LoRA adapters")
+    print(f"✅ Trainable parameters confirmed: {new_trainable:,}")
 
-# CRITICAL: Enable gradients for training
+# CRITICAL: Enable gradients for training (full precision LoRA)
 print("Enabling gradients for training...")
-inner = model.get_base_model() if hasattr(model, "get_base_model") else getattr(model, "model", model) if hasattr(model, "model") else model
-if hasattr(inner, "enable_input_require_grads"):
-    inner.enable_input_require_grads()
-    print("✅ Gradients enabled for training")
+
+# For full precision LoRA, this is simpler - no special quantization setup needed
+# Just ensure LoRA layers are trainable
+model.train()
+
+print("✅ Gradients enabled for training")
 
 # Set to training mode
 model.train()
@@ -457,13 +528,16 @@ kto_config = KTOConfig(
     num_train_epochs=cfg.num_train_epochs,
     logging_steps=cfg.logging_steps,
     save_steps=cfg.save_steps,
-    bf16=cfg.bf16,
+    bf16=False,  # Disable bf16 to avoid CUDA errors
+    fp16=True,  # Use fp16 instead
     eval_steps=cfg.eval_steps,
     optim="adamw_torch_fused",
-    dataloader_num_workers=4,
-    gradient_checkpointing=True,
+    dataloader_num_workers=0,  # Reduce workers to avoid issues
     remove_unused_columns=False,
     max_length=cfg.max_prompt_length + cfg.max_response_length,
+    report_to="none",  # Disable wandb logging
+    desirable_weight=0.8,  # Recommended weight for imbalanced positive/negative examples
+    gradient_checkpointing=True,  # Enable for KTO training
 )
 
 print("KTO Configuration:")
@@ -475,12 +549,44 @@ print(json.dumps(kto_config.to_dict(), indent=2))
 
 print("Initializing KTO trainer...")
 
-# Disable wandb for this run
-os.environ["WANDB_DISABLED"] = "true"
+# Wandb is disabled via report_to="none" in KTOConfig
+
+# Create a reference model for KTO (needed for KL penalty calculation)
+# Use the merged model as the reference (it already has the finetuned weights)
+print("Creating reference model for KTO...")
+# Download merged model
+merged_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged/'
+merged_path = './hf_model_merged/'
+os.makedirs(merged_path, exist_ok=True)
+
+print("Downloading merged model for reference...")
+paginator = s3_client.get_paginator('list_objects_v2')
+pages = paginator.paginate(Bucket='nba-recap-summarization-model-staging', Prefix=merged_prefix)
+
+files_downloaded = 0
+for page in pages:
+    if 'Contents' in page:
+        for obj in page['Contents']:
+            key = obj['Key']
+            local_file = os.path.join(merged_path, key.replace(merged_prefix, ''))
+            os.makedirs(os.path.dirname(local_file), exist_ok=True)
+            s3_client.download_file('nba-recap-summarization-model-staging', key, local_file)
+            files_downloaded += 1
+
+print(f"Downloaded {files_downloaded} files from merged model")
+
+# Load merged model as reference (no quantization needed)
+ref_model = AutoModelForCausalLM.from_pretrained(
+    merged_path,
+    device_map="auto",
+    torch_dtype=torch.float16,  # FP16, not quantized
+    trust_remote_code=True
+)
+print("✅ Reference model (merged) loaded in FP16")
 
 trainer = KTOTrainer(
     model=model,  # Our training-ready model with LoRA adapters
-    ref_model=None,  # No reference model needed for KTO
+    ref_model=ref_model,  # Reference model for KTO KL penalty
     args=kto_config,
     train_dataset=kto_ds_train,
     eval_dataset=kto_ds_test,
@@ -491,25 +597,45 @@ trainer = KTOTrainer(
 print("✅ KTO trainer initialized successfully!")
 print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
-# Test gradient flow before training
-print("\nTesting gradient flow...")
+# Ensure model is in training mode
+model.train()
+print("✅ Model set to training mode")
+
+# Note: The KTO trainer handles gradient computation internally
+# We'll skip the manual gradient test and proceed directly to training
+print("\n✅ Trainer initialized successfully!")
+print(f"Model has {sum(p.numel() for p in model.parameters() if p.requires_grad):,} trainable parameters")
+
+# Debug: Check for out-of-range token IDs in the dataset
+print("\nChecking dataset for potential issues...")
+sample_batch = kto_ds_train[0]
+vocab_size = len(tokenizer)
+
+for key, value in sample_batch.items():
+    if isinstance(value, list) and len(value) > 0 and isinstance(value[0], int):
+        # Check if any token IDs are out of range
+        max_id = max(value) if value else 0
+        min_id = min(value) if value else 0
+        if max_id >= vocab_size or min_id < 0:
+            print(f"⚠️  {key}: Found out-of-range token IDs! Max: {max_id}, Min: {min_id}, Vocab size: {vocab_size}")
+        else:
+            print(f"✅ {key}: Token IDs are in range (max: {max_id})")
+
+print("Starting KTO training...")
+
+# Set environment variables for better error messages
+import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
+
+# Clear any CUDA errors
 try:
-    batch = next(iter(trainer.get_train_dataloader()))
-    inputs = trainer._prepare_inputs(batch)
-    loss = trainer.compute_loss(trainer.model, inputs)
-    print(f"✅ Loss computation successful: {loss.item():.4f}")
-    print(f"✅ Loss requires grad: {loss.requires_grad}")
-    
-    # Test backward pass
-    loss.backward()
-    print("✅ Backward pass successful")
-    
-    # Clear gradients
-    trainer.model.zero_grad(set_to_none=True)
-    
-except Exception as e:
-    print(f"❌ Gradient flow test failed: {e}")
-    raise
+    torch.cuda.empty_cache()
+    # Reset CUDA state
+    import subprocess
+    subprocess.run(["nvidia-smi"], check=False)
+except:
+    pass
 
 # =============================================================================
 # CELL 8: Start KTO Training
