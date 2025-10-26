@@ -133,6 +133,47 @@ if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
 
+# Add custom tokens BEFORE loading the model
+# This is critical to match the training vocabulary size
+def add_custom_tokens_to_tokenizer(tokenizer):
+    """Add custom NBA tokens to the tokenizer"""
+    custom_tokens = [
+        # Team names
+        "Celtics", "Lakers", "Warriors", "Heat", "Nets", "Bucks", "76ers", "Suns",
+        "Mavericks", "Clippers", "Nuggets", "Jazz", "Trail", "Blazers", "Kings", "Grizzlies",
+        "Rockets", "Pelicans", "Spurs", "Thunder", "Magic", "Hornets", "Pistons", "Bulls",
+        "Cavaliers", "Hawks", "Knicks", "Pacers", "Raptors", "Wizards",
+        # Basketball terms
+        "rebound", "assist", "steal", "block", "turnover", "foul", "free", "throw",
+        "three", "pointer", "field", "goal", "percentage", "points", "scored",
+        "quarter", "overtime", "halftime", "timeout", "coach", "bench", "starters",
+        # Player names (common)
+        "LeBron", "James", "Curry", "Kevin", "Durant", "Giannis", "Antetokounmpo",
+        "Luka", "Doncic", "Jayson", "Tatum", "Joel", "Embiid", "Nikola", "Jokic",
+        # Actions
+        "dunked", "layup", "jump", "shot", "drew", "committed", "missed", "made",
+        "hit", "attempted", "grabbed", "recorded", "finished", "led", "added",
+        "went", "final", "score", "win", "loss", "victory", "defeated", "beat",
+        # Statistics
+        "consecutive", "series", "season", "playoffs", "championship", "finals",
+        "conference", "division", "standings", "record", "wins", "losses",
+    ]
+    
+    # Add tokens that don't exist
+    new_tokens = [token for token in custom_tokens if token not in tokenizer.get_vocab()]
+    
+    if new_tokens:
+        print(f"Adding {len(new_tokens)} custom tokens to tokenizer")
+        tokenizer.add_tokens(new_tokens)
+    else:
+        print("All custom tokens already exist in tokenizer")
+    
+    return tokenizer
+
+# Add custom tokens to match training vocabulary
+tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
+print(f"Tokenizer vocabulary size after adding custom tokens: {len(tokenizer)}")
+
 # Load model - use the correct approach for base + adapters
 print("Loading model for KTO training...")
 
@@ -215,29 +256,29 @@ except Exception as e:
             print(f"❌ Merged model strategy also failed: {str(e3)[:200]}")
             raise RuntimeError("Failed to load any model variant")
 
+# CRITICAL: Resize model embeddings BEFORE loading adapters
+print("Checking vocabulary size compatibility...")
+expected_vocab_size = len(tokenizer)
+current_vocab_size = base_model.get_input_embeddings().num_embeddings
+
+print(f"Current model vocab size: {current_vocab_size}")
+print(f"Tokenizer vocab size (with custom tokens): {expected_vocab_size}")
+
+if current_vocab_size != expected_vocab_size:
+    print(f"⚠️ Resizing model embeddings from {current_vocab_size} to {expected_vocab_size}")
+    base_model.resize_token_embeddings(expected_vocab_size)
+    print(f"✅ Model embeddings resized to {expected_vocab_size}")
+else:
+    print("✅ Vocabulary sizes already match")
+
 # Now attach the LoRA adapters (if available)
 print("Attaching LoRA adapters...")
 if adapters_path and os.path.exists(adapters_path):
     try:
-        # First, check the vocabulary size mismatch
-        print("Checking vocabulary size compatibility...")
-        
-        # Get the expected vocab size from the tokenizer (which should match training)
-        expected_vocab_size = len(tokenizer)
-        current_vocab_size = base_model.get_input_embeddings().num_embeddings
-        
-        print(f"Current vocab size: {current_vocab_size}")
-        print(f"Tokenizer vocab size: {expected_vocab_size}")
-        
-        # Resize token embeddings to match the training vocabulary size
-        if current_vocab_size != expected_vocab_size:
-            print(f"Resizing token embeddings from {current_vocab_size} to {expected_vocab_size}")
-            base_model.resize_token_embeddings(expected_vocab_size)
-        
         # NO QUANTIZATION - use the base model as is
         print("Using base model without quantization (full precision LoRA)")
         
-        # Now attach the adapters
+        # Now attach the adapters (vocab size should match now)
         model = PeftModel.from_pretrained(base_model, adapters_path)
         print("✅ LoRA adapters attached successfully to base model")
     except Exception as e:
