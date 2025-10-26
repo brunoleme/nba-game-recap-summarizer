@@ -100,10 +100,15 @@ def train(cfg: DictConfig):
         
         # Save adapters only
         # CRITICAL: Set inference_mode=False before saving for KTO compatibility
-        for adapter_name, peft_config in model.model.peft_config.items():
-            peft_config.inference_mode = False
+        if hasattr(model.model, 'peft_config') and model.model.peft_config:
+            for adapter_name, peft_config in model.model.peft_config.items():
+                original_mode = peft_config.inference_mode
+                peft_config.inference_mode = False
+                logger.info(f"Setting adapter '{adapter_name}' inference_mode from {original_mode} to False")
+        else:
+            logger.warning("No PEFT config found - adapters may be saved with default settings")
         model.model.save_pretrained(adapters_dir)
-        logger.info("LoRA adapters saved for KTO training (inference_mode=False)")
+        logger.info("LoRA adapters saved for KTO training")
     else:
         # No PEFT: just save base
         if hasattr(model, 'original_model') and model.original_model is not None:

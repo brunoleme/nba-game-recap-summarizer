@@ -133,8 +133,11 @@ if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
 
-# Add custom tokens BEFORE loading the model
-# This is critical to match the training vocabulary size
+# Check the tokenizer's vocabulary size
+print(f"Loaded tokenizer vocabulary size: {len(tokenizer)}")
+
+# The tokenizer saved during training should already include all custom tokens
+# Only add custom tokens if they're missing (this shouldn't be necessary)
 def add_custom_tokens_to_tokenizer(tokenizer):
     """Add custom NBA tokens to the tokenizer"""
     custom_tokens = [
@@ -170,9 +173,28 @@ def add_custom_tokens_to_tokenizer(tokenizer):
     
     return tokenizer
 
-# Add custom tokens to match training vocabulary
-tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
-print(f"Tokenizer vocabulary size after adding custom tokens: {len(tokenizer)}")
+# Check if we need to add custom tokens
+# The saved tokenizer should already have the correct vocabulary size
+actual_vocab_size = len(tokenizer)
+expected_vocab_size = 128382  # This is the vocab size the adapters were trained with
+
+print(f"Tokenizer vocabulary size: {actual_vocab_size}")
+print(f"Expected vocabulary size: {expected_vocab_size}")
+
+if actual_vocab_size == expected_vocab_size:
+    print("✅ Tokenizer vocabulary size matches expected size")
+    print("✅ No need to add custom tokens - they're already included")
+elif actual_vocab_size < expected_vocab_size:
+    print(f"⚠️ Adding missing custom tokens ({expected_vocab_size - actual_vocab_size} tokens)...")
+    tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
+    print(f"✅ Tokenizer vocabulary size after adding tokens: {len(tokenizer)}")
+else:
+    print(f"⚠️ VOCAB SIZE MISMATCH!")
+    print(f"   Current: {actual_vocab_size}")
+    print(f"   Expected: {expected_vocab_size}")
+    print(f"   Difference: {actual_vocab_size - expected_vocab_size}")
+    print(f"\n⚠️  Tokenizer has more tokens than expected - this may cause issues loading adapters")
+    print(f"⚠️  Try using the exact tokenizer saved during training")
 
 # Load model - use the correct approach for base + adapters
 print("Loading model for KTO training...")
@@ -278,9 +300,49 @@ if adapters_path and os.path.exists(adapters_path):
         # NO QUANTIZATION - use the base model as is
         print("Using base model without quantization (full precision LoRA)")
         
-        # Now attach the adapters (vocab size should match now)
-        model = PeftModel.from_pretrained(base_model, adapters_path)
-        print("✅ LoRA adapters attached successfully to base model")
+        # CRITICAL: Load the PEFT config first to check inference_mode
+        from peft import PeftConfig
+        peft_config = PeftConfig.from_pretrained(adapters_path)
+        if peft_config.inference_mode:
+            print(f"⚠️  Adapters were saved with inference_mode=True, creating new training config")
+            # Create a new LoraConfig for training
+            from peft import LoraConfig
+            train_lora_config = LoraConfig(
+                r=peft_config.r,
+                lora_alpha=peft_config.lora_alpha,
+                target_modules=peft_config.target_modules,
+                lora_dropout=peft_config.lora_dropout,
+                bias=peft_config.bias,
+                task_type=peft_config.task_type,
+                inference_mode=False,  # CRITICAL: Set to False for training
+            )
+            # Load the base model with PEFT applied using training config
+            from peft import get_peft_model
+            model = get_peft_model(base_model, train_lora_config)
+            # Load the adapter weights from the saved checkpoint
+            model.load_adapter(adapters_path, adapter_name="default")
+        else:
+            # Load normally if inference_mode is already False
+            model = PeftModel.from_pretrained(base_model, adapters_path)
+        
+        # CRITICAL: Set adapters to training mode
+        model.train()
+        
+        # CRITICAL: Ensure inference_mode is False in PEFT config
+        for adapter_name, peft_cfg in model.peft_config.items():
+            peft_cfg.inference_mode = False
+        
+        # CRITICAL: Enable all adapters and ensure they're trainable
+        model.enable_adapter_layers()
+        
+        # CRITICAL: Ensure LoRA parameters are trainable
+        for name, param in model.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = True
+        
+        # Count trainable params
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"✅ LoRA adapters attached successfully - {trainable:,} trainable parameters")
     except Exception as e:
         print(f"❌ Failed to attach adapters: {e}")
         print("⚠️  Using base model without adapters - you may need to add new LoRA adapters")
@@ -306,9 +368,13 @@ if trainable_params == 0:
     print("⚠️  No trainable parameters found - adding new LoRA adapters for KTO training")
     
     # Check if model already has PEFT adapters
-    if hasattr(model, 'peft_config') and model.peft_config:
+    if hasattr(model, 'peft_config') and model.peft_config and hasattr(model, 'unload'):
         print("⚠️  Model already has PEFT config - unloading first")
         model = model.unload()
+    elif isinstance(model, PeftModel):
+        print("⚠️  Model is a PeftModel but adapters failed to load")
+        # Extract the base model
+        model = model.get_base_model()
     
     # Create new LoRA configuration
     from peft import LoraConfig, get_peft_model
@@ -537,7 +603,7 @@ kto_config = KTOConfig(
     max_length=cfg.max_prompt_length + cfg.max_response_length,
     report_to="none",  # Disable wandb logging
     desirable_weight=0.8,  # Recommended weight for imbalanced positive/negative examples
-    gradient_checkpointing=True,  # Enable for KTO training
+    gradient_checkpointing=False,  # Disable to fix gradient flow issues
 )
 
 print("KTO Configuration:")
@@ -582,7 +648,11 @@ ref_model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.float16,  # FP16, not quantized
     trust_remote_code=True
 )
-print("✅ Reference model (merged) loaded in FP16")
+# CRITICAL: Freeze the reference model for KL penalty computation
+for param in ref_model.parameters():
+    param.requires_grad = False
+ref_model.eval()  # Ensure it's in eval mode
+print("✅ Reference model (merged) loaded in FP16 and frozen")
 
 trainer = KTOTrainer(
     model=model,  # Our training-ready model with LoRA adapters
@@ -594,8 +664,36 @@ trainer = KTOTrainer(
     peft_config=None,  # Don't pass peft_config - adapters already attached
 )
 
+# CRITICAL: Monkey-patch compute_loss to ensure adapters are enabled
+original_compute_loss = trainer.compute_loss
+def compute_loss_with_fixed_adapters(model, inputs, return_outputs=False, num_items_in_batch=None):
+    """Wrapper to fix adapters before computing loss"""
+    if hasattr(model, 'peft_config'):
+        for adapter_name, peft_cfg in model.peft_config.items():
+            peft_cfg.inference_mode = False
+        model.train()
+        if hasattr(model, 'enable_adapter_layers'):
+            model.enable_adapter_layers()
+        # Force LoRA parameters to require grad
+        for name, param in model.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = True
+    return original_compute_loss(model, inputs, return_outputs, num_items_in_batch)
+
+trainer.compute_loss = compute_loss_with_fixed_adapters
+
 print("✅ KTO trainer initialized successfully!")
-print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+print(f"Original model trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+print(f"Trainer's model trainable parameters: {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,}")
+
+# CRITICAL: The trainer may have wrapped the model - ensure adapters are enabled
+if hasattr(trainer.model, 'peft_config'):
+    for adapter_name, peft_cfg in trainer.model.peft_config.items():
+        peft_cfg.inference_mode = False
+    # Ensure adapters are enabled in trainer's model
+    trainer.model.train()
+    
+print(f"After fixing trainer model - trainable parameters: {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,}")
 
 # Ensure model is in training mode
 model.train()
@@ -637,6 +735,61 @@ try:
 except:
     pass
 
+# Debug: Test loss computation before training
+print("\n" + "="*50)
+print("DEBUGGING: Testing loss computation before training")
+print("="*50)
+try:
+    # Get a single batch
+    test_batch = kto_ds_train[0]
+    
+    # Convert to tensors manually to debug
+    print(f"Test batch keys: {test_batch.keys()}")
+    
+    # Try to compute loss manually with proper input format
+    # Need to concatenate prompt + completion and provide labels
+    prompt_text = test_batch['prompt']
+    completion_text = test_batch['completion']
+    
+    # Concatenate prompt and completion
+    full_text = prompt_text + completion_text
+    
+    # Tokenize with labels (labels = completion tokens, -100 for prompt tokens)
+    tokenized = tokenizer(full_text, return_tensors="pt", padding=True, truncation=True)
+    prompt_tokens = tokenizer(prompt_text, return_tensors="pt", padding=True, truncation=True, add_special_tokens=False)
+    
+    # Create labels: -100 for prompt tokens, actual token ids for completion tokens
+    labels = tokenized['input_ids'].clone()
+    prompt_length = prompt_tokens['input_ids'].shape[1]
+    labels[:, :prompt_length] = -100  # Mask prompt tokens
+    
+    print(f"Full text tokenized shape: {tokenized['input_ids'].shape}")
+    print(f"Labels shape: {labels.shape}")
+    
+    # Move inputs to GPU
+    device = next(model.parameters()).device
+    inputs = {k: v.to(device) for k, v in tokenized.items()}
+    inputs['labels'] = labels.to(device)
+    
+    # Test forward pass with labels
+    model.train()
+    test_output = model(**inputs)
+    
+    if hasattr(test_output, 'loss') and test_output.loss is not None:
+        print(f"✅ Loss computed: {test_output.loss.item():.4f}")
+        print(f"Loss requires grad: {test_output.loss.requires_grad}")
+        print(f"✅ Loss computation successful!")
+    else:
+        print("⚠️ No loss in output")
+    
+    print("="*50 + "\n")
+    
+except Exception as e:
+    print(f"❌ Debug test failed: {e}")
+    import traceback
+    traceback.print_exc()
+    print("="*50 + "\n")
+
 # =============================================================================
 # CELL 8: Start KTO Training
 # =============================================================================
@@ -644,6 +797,104 @@ except:
 print("Starting KTO training...")
 print(f"Training on {len(kto_ds_train)} samples")
 print(f"Configuration: {cfg.num_train_epochs} epochs, batch size {cfg.per_device_train_batch_size}")
+
+# CRITICAL: Patch the trainer's model to ensure adapters are in training mode
+# The trainer wraps the model and may reset adapter settings
+if hasattr(trainer.model, 'peft_config'):
+    for adapter_name, peft_cfg in trainer.model.peft_config.items():
+        peft_cfg.inference_mode = False
+    trainer.model.train()
+    # Force enable adapter layers
+    if hasattr(trainer.model, 'enable_adapter_layers'):
+        trainer.model.enable_adapter_layers()
+    # Ensure all LoRA parameters are trainable
+    for name, param in trainer.model.named_parameters():
+        if 'lora' in name.lower() and not param.requires_grad:
+            param.requires_grad = True
+    print(f"✅ Fixed trainer model - {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,} trainable parameters")
+
+# Debug: Print first training batch to see what trainer receives
+print("\n" + "="*50)
+print("DEBUG: Checking first training batch from trainer")
+print("="*50)
+try:
+    # Get first batch from dataloader
+    first_batch = next(iter(trainer.get_train_dataloader()))
+    print(f"Batch keys: {first_batch.keys()}")
+    
+    # Check if batch has the expected structure
+    for key, value in first_batch.items():
+        if isinstance(value, torch.Tensor):
+            print(f"{key}: shape={value.shape}, dtype={value.dtype}, device={value.device}")
+            # Check if tensor requires grad
+            if value.requires_grad:
+                print(f"  ⚠️ {key} requires grad (shouldn't for inputs!)")
+        elif isinstance(value, list):
+            print(f"{key}: list of {len(value)} items")
+        else:
+            print(f"{key}: {type(value)}")
+    
+    print("="*50 + "\n")
+except Exception as e:
+    print(f"Error inspecting batch: {e}")
+    print("="*50 + "\n")
+
+# Debug: Test KTO trainer's compute_loss directly
+print("\n" + "="*50)
+print("DEBUG: Testing KTO trainer's compute_loss")
+print("="*50)
+try:
+    # Get first batch and test loss computation
+    test_batch = trainer._prepare_inputs(first_batch)
+    
+    # Debug: Check if ref_model is causing issues
+    print(f"ref_model type: {type(trainer.ref_model)}")
+    if trainer.ref_model is not None:
+        print(f"ref_model device: {next(trainer.ref_model.parameters()).device}")
+        print(f"ref_model training mode: {trainer.ref_model.training}")
+        # Check if ref_model parameters require grad
+        ref_params_require_grad = any(p.requires_grad for p in trainer.ref_model.parameters())
+        print(f"ref_model parameters require grad: {ref_params_require_grad}")
+    
+    # Check policy model
+    print(f"Policy model type: {type(trainer.model)}")
+    policy_params_require_grad = sum(1 for p in trainer.model.parameters() if p.requires_grad)
+    print(f"Policy model trainable params: {policy_params_require_grad}")
+    print(f"Policy model training mode: {trainer.model.training}")
+    
+    # CRITICAL: Force enable adapters right before compute_loss
+    if hasattr(trainer.model, 'peft_config'):
+        for adapter_name, peft_cfg in trainer.model.peft_config.items():
+            peft_cfg.inference_mode = False
+        trainer.model.train()
+        trainer.model.enable_adapter_layers()
+        for name, param in trainer.model.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = True
+        actual_trainable = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        print(f"✅ Re-fixed adapters before compute_loss - {actual_trainable:,} trainable params")
+    
+    # Test compute_loss
+    print("Calling compute_loss...")
+    loss = trainer.compute_loss(trainer.model, test_batch)
+    
+    print(f"Loss computed: {loss if loss is None else loss.item()}")
+    if loss is not None:
+        print(f"Loss requires grad: {loss.requires_grad}")
+        print(f"Loss device: {loss.device}")
+        
+        # Check if loss has grad_fn
+        if hasattr(loss, 'grad_fn'):
+            print(f"Loss grad_fn: {loss.grad_fn}")
+        else:
+            print("Loss has no grad_fn!")
+    
+    print("="*50 + "\n")
+except Exception as e:
+    print(f"Error testing compute_loss: {e}")
+    import traceback
+    traceback.print_exc()
+    print("="*50 + "\n")
 
 # Train the model
 trainer.train()
