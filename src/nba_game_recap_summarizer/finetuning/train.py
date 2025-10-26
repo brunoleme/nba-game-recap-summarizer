@@ -6,6 +6,7 @@ from loguru import logger
 from omegaconf import DictConfig
 import wandb
 from torch.utils.data import DataLoader
+from transformers import AutoModelForCausalLM
 
 from nba_game_recap_summarizer.finetuning.data.nba_recap_dataset import NBARecapDataModule
 from nba_game_recap_summarizer.finetuning.utils.logger import setup_logger
@@ -124,23 +125,65 @@ def train(cfg: DictConfig):
             model.model.save_pretrained(base_dir)
             logger.info("Base model saved (no PEFT)")
 
-    # (C) Also save MERGED copy for inference
+    # (C) Save MERGED copies (quantized for inference, unquantized for KTO reference)
     try:
         if isinstance(model.model, PeftModel):
-            merged = model.model.merge_and_unload()
-            # Fix generation_config before saving
-            if hasattr(merged, 'generation_config'):
-                merged.generation_config.pad_token_id = model.tokenizer.pad_token_id
-            merged.save_pretrained(merged_dir)
-            logger.info("Merged model saved for inference")
+            # Save quantized merged model for inference (efficient for API)
+            merged_quantized = model.model.merge_and_unload()
+            if hasattr(merged_quantized, 'generation_config'):
+                merged_quantized.generation_config.pad_token_id = model.tokenizer.pad_token_id
+            merged_quantized.save_pretrained(merged_dir)
+            logger.info("✅ Quantized merged model saved for inference")
+            
+            # Save unquantized merged model for KTO reference (if original model exists)
+            if hasattr(model, 'original_model') and model.original_model is not None:
+                merged_unquantized_dir = os.path.join(hf_root, "hf_model_merged_unquantized")
+                logger.info("Creating unquantized merged model for KTO reference...")
+                
+                # Get the adapter weights from the quantized model
+                adapter_state_dict = model.model.state_dict()
+                
+                # Load adapters onto the original unquantized model
+                original_model_for_merge = AutoModelForCausalLM.from_pretrained(
+                    base_dir,
+                    torch_dtype=torch.float16,
+                    device_map="cpu"
+                )
+                
+                # Create a new PeftModel with the unquantized base
+                from peft import get_peft_model
+                # Get the PEFT config from the quantized model
+                peft_cfg = model.model.peft_config['default'] if 'default' in model.model.peft_config else list(model.model.peft_config.values())[0]
+                
+                # Apply the same PEFT config to the unquantized model
+                import copy
+                peft_cfg_for_merge = copy.deepcopy(peft_cfg)
+                peft_cfg_for_merge.inference_mode = False
+                
+                unquantized_peft = get_peft_model(original_model_for_merge, peft_cfg_for_merge)
+                
+                # Load the adapter weights
+                unquantized_peft.load_state_dict(adapter_state_dict, strict=False)
+                
+                # Now merge and unload
+                merged_unquantized = unquantized_peft.merge_and_unload()
+                
+                # Fix generation_config before saving
+                if hasattr(merged_unquantized, 'generation_config'):
+                    merged_unquantized.generation_config.pad_token_id = model.tokenizer.pad_token_id
+                merged_unquantized.save_pretrained(merged_unquantized_dir)
+                logger.info("✅ Unquantized merged model saved for KTO reference")
+            else:
+                logger.info("No original model available - skipping unquantized merged model")
+                logger.info("Quantized merged model will be used for both inference and KTO reference")
         else:
-            # Fix generation_config before saving
+            # No PEFT: just save the model
             if hasattr(model.model, 'generation_config'):
                 model.model.generation_config.pad_token_id = model.tokenizer.pad_token_id
             model.model.save_pretrained(merged_dir)
             logger.info("Model saved for inference")
     except Exception as e:
-        logger.warning(f"Could not save merged model: {e}")
+        logger.warning(f"Could not save merged model(s): {e}")
 
     logger.success("Model saved successfully - both training and inference formats available")
 

@@ -549,7 +549,7 @@ class KTORunConfig:
     max_response_length: int = 256
     
     # KTO settings
-    beta: float = 0.1
+    beta: float = 0.5  # Increased from 0.1 to stabilize loss computation
     loss_type: str = 'sigmoid'
     kto_label_threshold: float = 0.6
     
@@ -595,7 +595,7 @@ kto_config = KTOConfig(
     logging_steps=cfg.logging_steps,
     save_steps=cfg.save_steps,
     bf16=False,  # Disable bf16 to avoid CUDA errors
-    fp16=True,  # Use fp16 instead
+    fp16=False,  # Try disabling fp16 to fix NaN loss issues
     eval_steps=cfg.eval_steps,
     optim="adamw_torch_fused",
     dataloader_num_workers=0,  # Reduce workers to avoid issues
@@ -618,41 +618,74 @@ print("Initializing KTO trainer...")
 # Wandb is disabled via report_to="none" in KTOConfig
 
 # Create a reference model for KTO (needed for KL penalty calculation)
-# Use the merged model as the reference (it already has the finetuned weights)
+# Use the unquantized merged model as the reference for numerical stability
 print("Creating reference model for KTO...")
-# Download merged model
-merged_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged/'
-merged_path = './hf_model_merged/'
-os.makedirs(merged_path, exist_ok=True)
+# Download unquantized merged model (if available, otherwise fall back to quantized)
+merged_unquantized_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged_unquantized/'
+merged_unquantized_path = './hf_model_merged_unquantized/'
+merged_quantized_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged/'
+merged_quantized_path = './hf_model_merged/'
 
-print("Downloading merged model for reference...")
-paginator = s3_client.get_paginator('list_objects_v2')
-pages = paginator.paginate(Bucket='nba-recap-summarization-model-staging', Prefix=merged_prefix)
+# Function to download and load merged model
+def download_and_load_merged_model(prefix, local_path, name):
+    """Download and load merged model from S3"""
+    os.makedirs(local_path, exist_ok=True)
+    
+    print(f"Searching for {name} at prefix: s3://nba-recap-summarization-model-staging/{prefix}")
+    paginator = s3_client.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket='nba-recap-summarization-model-staging', Prefix=prefix)
+    
+    files_downloaded = 0
+    for page in pages:
+        if 'Contents' in page:
+            for obj in page['Contents']:
+                key = obj['Key']
+                local_file = os.path.join(local_path, key.replace(prefix, ''))
+                os.makedirs(os.path.dirname(local_file), exist_ok=True)
+                s3_client.download_file('nba-recap-summarization-model-staging', key, local_file)
+                files_downloaded += 1
+    
+    return files_downloaded
 
-files_downloaded = 0
-for page in pages:
-    if 'Contents' in page:
-        for obj in page['Contents']:
-            key = obj['Key']
-            local_file = os.path.join(merged_path, key.replace(merged_prefix, ''))
-            os.makedirs(os.path.dirname(local_file), exist_ok=True)
-            s3_client.download_file('nba-recap-summarization-model-staging', key, local_file)
-            files_downloaded += 1
+# Try to download unquantized merged model first
+files_downloaded = download_and_load_merged_model(merged_unquantized_prefix, merged_unquantized_path, "unquantized merged model")
 
-print(f"Downloaded {files_downloaded} files from merged model")
+if files_downloaded > 0:
+    print(f"✅ Downloaded {files_downloaded} files from unquantized merged model")
+    merged_path = merged_unquantized_path
+    ref_model = AutoModelForCausalLM.from_pretrained(
+        merged_path,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=True
+    )
+    print("✅ Reference model (unquantized merged) loaded in FP16 and frozen")
+else:
+    print(f"⚠️ Unquantized merged model not found, trying quantized merged model...")
+    # Fallback to quantized merged model
+    files_downloaded = download_and_load_merged_model(merged_quantized_prefix, merged_quantized_path, "quantized merged model")
+    
+    if files_downloaded > 0:
+        print(f"✅ Downloaded {files_downloaded} files from quantized merged model")
+        merged_path = merged_quantized_path
+        ref_model = AutoModelForCausalLM.from_pretrained(
+            merged_path,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            trust_remote_code=True
+        )
+        print("✅ Reference model (quantized merged) loaded in FP16 and frozen")
+    else:
+        print("⚠️ No merged model found, falling back to using base model as reference...")
+        # Last resort: Use the base model
+        ref_model = base_model
+        print("✅ Using base model as reference (same as policy)")
 
-# Load merged model as reference (no quantization needed)
-ref_model = AutoModelForCausalLM.from_pretrained(
-    merged_path,
-    device_map="auto",
-    torch_dtype=torch.float16,  # FP16, not quantized
-    trust_remote_code=True
-)
 # CRITICAL: Freeze the reference model for KL penalty computation
 for param in ref_model.parameters():
     param.requires_grad = False
 ref_model.eval()  # Ensure it's in eval mode
-print("✅ Reference model (merged) loaded in FP16 and frozen")
+print("✅ Reference model frozen and set to eval mode")
 
 trainer = KTOTrainer(
     model=model,  # Our training-ready model with LoRA adapters
@@ -668,8 +701,10 @@ trainer = KTOTrainer(
 original_compute_loss = trainer.compute_loss
 def compute_loss_with_fixed_adapters(model, inputs, return_outputs=False, num_items_in_batch=None):
     """Wrapper to fix adapters before computing loss"""
+    print(f"🔧 Monkey-patch called! Model type: {type(model)}")
     if hasattr(model, 'peft_config'):
         for adapter_name, peft_cfg in model.peft_config.items():
+            print(f"  Setting adapter '{adapter_name}' inference_mode from {peft_cfg.inference_mode} to False")
             peft_cfg.inference_mode = False
         model.train()
         if hasattr(model, 'enable_adapter_layers'):
@@ -678,7 +713,71 @@ def compute_loss_with_fixed_adapters(model, inputs, return_outputs=False, num_it
         for name, param in model.named_parameters():
             if 'lora' in name.lower():
                 param.requires_grad = True
-    return original_compute_loss(model, inputs, return_outputs, num_items_in_batch)
+        trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"  ✅ After patch: {trainable_count:,} trainable parameters")
+    else:
+        print(f"  ⚠️ Model has no peft_config!")
+    
+    # Debug: Check if inputs have gradients
+    if isinstance(inputs, dict):
+        # Check labels distribution
+        if 'label' in inputs:
+            labels = inputs['label']
+            if isinstance(labels, torch.Tensor):
+                pos_count = (labels == 1).sum().item()
+                neg_count = (labels == 0).sum().item()
+                print(f"  Batch label distribution: {pos_count} positives, {neg_count} negatives")
+            elif isinstance(labels, list):
+                pos_count = sum(1 for x in labels if x == 1)
+                neg_count = len(labels) - pos_count
+                print(f"  Batch label distribution: {pos_count} positives, {neg_count} negatives")
+        
+        for key, value in inputs.items():
+            if isinstance(value, torch.Tensor):
+                print(f"  Input '{key}': requires_grad={value.requires_grad if hasattr(value, 'requires_grad') else 'N/A'}")
+    
+    # CRITICAL: Get the original raw loss BEFORE any detach happens
+    # Check the model's forward pass to see what's happening
+    print(f"  🔍 Inspecting model state before compute_loss:")
+    print(f"    Model training mode: {model.training}")
+    
+    try:
+        # Call the original compute_loss
+        with torch.enable_grad():  # CRITICAL: Ensure gradients are enabled
+            result = original_compute_loss(model, inputs, return_outputs, num_items_in_batch)
+        
+        if result is not None:
+            if hasattr(result, 'requires_grad'):
+                loss_val = result.item() if hasattr(result, 'item') else result
+                print(f"  Loss result: value={loss_val}, requires_grad={result.requires_grad}, grad_fn={result.grad_fn}")
+                print(f"  Loss dtype: {result.dtype}, device: {result.device}")
+                
+                # CRITICAL: If loss doesn't require grad, something is wrong
+                if not result.requires_grad:
+                    print(f"  ❌ CRITICAL: Loss was detached! Attempting to compute raw loss manually...")
+                    # The loss was detached, so we need to recompute it with gradients enabled
+                    # But this is a hack - we should fix the KTO trainer's compute_loss
+                    return result  # Return as-is for now
+            else:
+                print(f"  Loss result (no requires_grad): {result}")
+            if torch.isnan(result) or torch.isinf(result):
+                print(f"  ⚠️ WARNING: Loss is NaN or Inf!")
+                print(f"  🔍 Investigating NaN source...")
+                # The NaN is likely from the KTO loss computation itself
+                # Check if it's a numerical stability issue
+                print(f"  📊 Batch composition: {len(inputs.get('label', []))} labels")
+                # Debug: Try to compute a simple forward pass
+                try:
+                    test_output = model(**{k: v for k, v in inputs.items() if k in ['input_ids', 'attention_mask']})
+                    print(f"  Test forward pass successful, output keys: {test_output.keys()}")
+                except Exception as e:
+                    print(f"  Test forward pass failed: {e}")
+    except Exception as e:
+        print(f"  ❌ compute_loss failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    return result
 
 trainer.compute_loss = compute_loss_with_fixed_adapters
 
