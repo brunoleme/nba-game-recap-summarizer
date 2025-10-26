@@ -99,8 +99,11 @@ def train(cfg: DictConfig):
             logger.warning("NOTE: Base model is quantized - may cause loading issues for KTO training")
         
         # Save adapters only
+        # CRITICAL: Set inference_mode=False before saving for KTO compatibility
+        for adapter_name, peft_config in model.model.peft_config.items():
+            peft_config.inference_mode = False
         model.model.save_pretrained(adapters_dir)
-        logger.info("LoRA adapters saved for KTO training")
+        logger.info("LoRA adapters saved for KTO training (inference_mode=False)")
     else:
         # No PEFT: just save base
         if hasattr(model, 'original_model') and model.original_model is not None:
