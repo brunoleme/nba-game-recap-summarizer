@@ -150,6 +150,15 @@ def train(cfg: DictConfig):
                     device_map="cpu"
                 )
                 
+                # CRITICAL: Resize model embeddings to match tokenizer vocabulary size
+                tokenizer_vocab_size = len(model.tokenizer)
+                current_vocab_size = original_model_for_merge.get_input_embeddings().num_embeddings
+                
+                if current_vocab_size != tokenizer_vocab_size:
+                    logger.info(f"Resizing model embeddings from {current_vocab_size} to {tokenizer_vocab_size}")
+                    original_model_for_merge.resize_token_embeddings(tokenizer_vocab_size)
+                    logger.info("✅ Model embeddings resized")
+                
                 # Create a new PeftModel with the unquantized base
                 from peft import get_peft_model
                 # Get the PEFT config from the quantized model
