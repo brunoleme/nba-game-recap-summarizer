@@ -549,7 +549,7 @@ class KTORunConfig:
     max_response_length: int = 256
     
     # KTO settings
-    beta: float = 0.5  # Increased from 0.1 to stabilize loss computation
+    beta: float = 0.01  # Very low beta to prevent extreme KL divergence (reduces NaN risk)
     loss_type: str = 'sigmoid'
     kto_label_threshold: float = 0.6
     
@@ -595,14 +595,17 @@ kto_config = KTOConfig(
     logging_steps=cfg.logging_steps,
     save_steps=cfg.save_steps,
     bf16=False,  # Disable bf16 to avoid CUDA errors
-    fp16=False,  # Try disabling fp16 to fix NaN loss issues
+    fp16=True,  # Enable fp16 for numerical stability
+    fp16_opt_level="O1",  # FP16 optimization level
     eval_steps=cfg.eval_steps,
     optim="adamw_torch_fused",
+    max_grad_norm=0.5,  # Aggressive gradient clipping to prevent NaN
     dataloader_num_workers=0,  # Reduce workers to avoid issues
     remove_unused_columns=False,
     max_length=cfg.max_prompt_length + cfg.max_response_length,
     report_to="none",  # Disable wandb logging
-    desirable_weight=0.8,  # Recommended weight for imbalanced positive/negative examples
+    desirable_weight=1.0,  # Balanced weights
+    undesirable_weight=1.0,  # Balanced weights
     gradient_checkpointing=False,  # Disable to fix gradient flow issues
 )
 
