@@ -1,10 +1,12 @@
 # Preference Learning Experiments for NBA Game Recap Summarization
 
-This directory contains experimental components for implementing preference learning (KTO) to improve the narrative style of NBA game recap summaries. This is a temporary experimental folder - the final implementation will be moved to `src/nba_game_recap_summarizer/preference_learning/`.
+This directory contains experimental components for implementing preference learning (KTO/DPO) to improve the narrative style of NBA game recap summaries. This is a temporary experimental folder - the final implementation will be moved to `src/nba_game_recap_summarizer/preference_learning/`.
 
 ## Overview
 
-This project implements **Kahneman-Tversky Optimization (KTO)** as an alternative to Direct Preference Optimization (DPO) for fine-tuning language models based on narrative style preferences. KTO is particularly well-suited for single-score preference data, making it ideal for our narrative style scoring system.
+This project implements **Direct Preference Optimization (DPO)** for fine-tuning language models based on narrative style preferences. We originally attempted to use Kahneman-Tversky Optimization (KTO) for single-score preference data, but encountered numerical instability issues. **DPO** provides a mature, stable alternative.
+
+**Status**: ✅ **DPO works successfully**, ❌ **KTO shows numerical instability (NaN losses)**
 
 ## Directory Structure
 
@@ -27,24 +29,26 @@ preference_learning_experiments/
 
 ## What is KTO vs DPO?
 
-### Direct Preference Optimization (DPO)
+### Direct Preference Optimization (DPO) ✅ **RECOMMENDED**
 - **Traditional approach**: Requires paired data (chosen vs rejected responses)
 - **Data format**: Each example has a "chosen" and "rejected" response
 - **Training**: Model learns to prefer chosen over rejected responses
-- **Limitation**: Requires explicit preference pairs
+- **Status**: **Successfully working** in our experiments
+- **Advantage**: Numerically stable, mature implementation
 
-### Kahneman-Tversky Optimization (KTO)
+### Kahneman-Tversky Optimization (KTO) ❌ **NOT RECOMMENDED**
 - **Modern approach**: Works with single-score preference data
 - **Data format**: Each example has a single preference score (1-5)
 - **Training**: Model learns from individual preference scores
-- **Advantage**: More flexible, works with our narrative style scoring
+- **Status**: **Numerically unstable** (NaN losses) in our experiments
+- **Issue**: Numerical instability causes training failures
 
-## Why KTO for This Project?
+## Why DPO for This Project?
 
-1. **Single Score Data**: Our narrative style scoring produces single scores (1-5) rather than pairs
-2. **Flexible Training**: Can use any preference score, not just binary choices
-3. **Better for Style**: More suitable for learning narrative style preferences
-4. **Simpler Data**: No need to create artificial preference pairs
+1. **Proven Stability**: DPO is mature and numerically stable
+2. **Works with Single Scores**: Can convert scores to chosen/rejected pairs
+3. **Better for Training**: More reliable gradient flow and convergence
+4. **Conversion Strategy**: High-score samples (top 25%) vs random negatives
 
 ## Narrative Style Scoring System
 
