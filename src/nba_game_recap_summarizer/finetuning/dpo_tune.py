@@ -133,8 +133,7 @@ def dpo_tune(cfg) -> str:
         args=dpo_args,
         train_dataset=dpo_train,
         eval_dataset=dpo_eval,
-        processing_class=tokenizer,
-        peft_config=None,
+        tokenizer=tokenizer,
     )
 
     start = time.time()
