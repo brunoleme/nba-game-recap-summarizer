@@ -1,4 +1,4 @@
-name: DPO Tune (Manual - SageMaker)
+name: DPO Tune (Manual - SageMaker Staging)
 
 on:
   workflow_dispatch:
