@@ -136,3 +136,26 @@ sagemaker-pipeline-trigger:
 		--evaluation-instance-count 1 \
 		--deployment-instance-type $(DEPLOYMENT_INSTANCE_TYPE) \
 		--project-config $(PROJECT_CONFIG)
+
+ 	sagemaker-pipeline-trigger-dpo:
+ 		@echo "Running SageMaker DPO trigger..."
+ 		python .github/scripts/trigger_sagemaker_pipeline_dpo.py \
+ 			--pipeline-run-id $(PIPELINE_RUN_ID) \
+ 			--image-uri $(ECR_REPOSITORY_URI):$(IMAGE_TAG) \
+ 			--inference-image-uri $(ECR_REPOSITORY_URI):$(INFERENCE_IMAGE_TAG) \
+ 			--role-arn $(SAGEMAKER_ROLE_ARN) \
+ 			--job-name nba_game_recap_summarizer-dpo-$(ENV) \
+ 			--env $(ENV) \
+ 			--wandb-api-key $(WANDB_API_KEY) \
+ 			--openai-api-key $(OPENAI_API_KEY) \
+ 			--hf-token $(HF_TOKEN) \
+ 			--huggingfacehub-api-token $(HUGGINGFACEHUB_API_TOKEN) \
+ 			--preprocessing-instance-type $(PREPROCESSING_INSTANCE_TYPE) \
+ 			--preprocessing-instance-count 1 \
+ 			--training-instance-type $(TRAINING_INSTANCE_TYPE) \
+ 			--training-instance-count 1 \
+ 			--evaluation-instance-type $(EVALUATION_INSTANCE_TYPE) \
+ 			--evaluation-instance-count 1 \
+ 			--deployment-instance-type $(DEPLOYMENT_INSTANCE_TYPE) \
+			--project-config $(PROJECT_CONFIG) \
+			--base-model-path $(BASE_MODEL_PATH)

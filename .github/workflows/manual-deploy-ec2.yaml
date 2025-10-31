@@ -19,6 +19,14 @@ on:
         description: 'SageMaker Pipeline ID to deploy'
         required: true
         type: string
+      model_variant:
+        description: 'Model variant to deploy'
+        required: true
+        default: 'hf_model'
+        type: choice
+        options:
+          - hf_model
+          - hf_model_merged_aligned
       instance_type:
         description: 'EC2 instance type'
         required: true
@@ -84,8 +92,12 @@ jobs:
       run: |
         PIPELINE_ID="${{ github.event.inputs.pipeline_id }}"
         ENVIRONMENT="${{ github.event.inputs.environment }}"
-        # Use Hugging Face model directory instead of .ckpt file
-        MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/hf_model"
+        VARIANT="${{ github.event.inputs.model_variant }}"
+        if [ "$VARIANT" = "hf_model" ]; then
+          MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/hf_model"
+        else
+          MODEL_PATH="s3://nba-recap-summarization-model-${ENVIRONMENT}/output/artifacts/${PIPELINE_ID}/dpo/hf_model_merged_aligned"
+        fi
         echo "MODEL_PATH=$MODEL_PATH" >> $GITHUB_OUTPUT
         echo "Constructed model path: $MODEL_PATH"
 
