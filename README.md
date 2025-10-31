@@ -45,6 +45,9 @@ graph TB
 - **Features**: Narrative style scoring, preference learning, Colab integration
 - **Status**: Experimental - will be moved to `src/` when ready for production
 
+---
+
+
 ## 🚀 Deployment Options
 
 ### EC2 Deployment - Testing & Debugging
@@ -241,7 +244,7 @@ data:
 
 📚 **[Migration Guide →](MIGRATION_GUIDE.md)**
 
-### Fine-tuning Strategy
+### Supervised Fine-tuning Strategy
 
 **LoRA (Low-Rank Adaptation)**:
 - **Parameters**: r=8, alpha=8, dropout=0.1
@@ -280,6 +283,7 @@ training:
 - Total: ~45 minutes
 
 ## 📈 Evaluation Metrics
+
 
 ### Lexical Metrics
 - **ROUGE-1, ROUGE-2, ROUGE-L**: Measures n-gram overlap
@@ -358,6 +362,61 @@ Epoch 4: 0.2059 (20.6%)
 * Anthony Davis: 28 points, 4 rebounds, 3 steals
 * Stephen Curry: 31 points, 6 three-pointers, 5 rebounds
 ```
+
+## 🎛️ Preference Fine-Tuning (DPO / RLAIF)
+
+This repository now includes a full preference fine-tuning path using Direct Preference Optimization (DPO) with RLAIF-style data construction. The original training flow is supervised fine-tuning (SFT); DPO is an additive, optional stage focused on improving narrative style.
+
+### What’s the difference?
+- **Supervised Fine-Tuning (SFT)**: Trains on (`game_recap` → `summary`) pairs using cross-entropy. Produces `hf_model_merged` artifacts used in production.
+- **Preference Fine-Tuning (DPO)**: Trains on (`prompt`, `chosen`, `rejected`) triples to prefer better narrative style. Produces `dpo/hf_model_merged_aligned` artifacts (FP16 merged) for serving.
+
+### End-to-end RLAIF strategy used
+1) Start from an SFT model: We used the supervised fine-tuned model to generate summaries for ~1k samples.
+2) Score narrative style: We applied a heuristic `NarrativeStyleEvaluator` (see below) to compute a `narrative_style_score` in [1,5].
+3) Build rewritten “high-style” references (RLAIF):
+   - Select high-quality examples: `score > 4.0`.
+   - For low/moderate examples: `score < 3.75`, rewrite using `mistralai/Mistral-7B-Instruct-v0.1` by conditioning on 3 sampled high-quality examples (few-shots). See `preference_learning_experiments/colab/RLAIF_Rewriting_Responses_with_Mistral.ipynb`.
+   - Construct DPO pairs: generated summary = rejected, rewritten summary = chosen.
+4) Train DPO: Run DPO over (`prompt` built from the recap, chosen, rejected) to align style. Results improved average narrative style scores.
+
+### Heuristic NarrativeStyleEvaluator (used to score and sort)
+The score is in [1,5] from a weighted combination of normalized sub-metrics (details implemented similarly to `preference_learning_experiments/notebooks/dpo_training.py`):
+- **Bulletiness (0–1, lower is better)**: Penalizes bullets/headings/list-like structures; prefers prose.
+- **Structure (0–1, higher is better)**: Reward 3–7 sentences and ~12–30 tokens per sentence.
+- **Connectors/Coherence (0–1, higher is better)**: Reward discourse markers (however, meanwhile, therefore, …) and inter-sentence coherence.
+- **Coverage (0–1, higher is better)**: Semantic similarity to the original recap (content fidelity).
+- **Readability (0–1, higher is better)**: Balanced complexity for clarity.
+The final `narrative_style_score` is a weighted combination (e.g., bulletiness 30%, structure 35%, coherence 20%, coverage 15%), scaled to [1,5].
+
+### DPO pipeline (productionized)
+- Code (modular):
+  - `src/nba_game_recap_summarizer/finetuning/dpo_preprocessing.py` – validates/stages pairs
+  - `src/nba_game_recap_summarizer/finetuning/dpo_tune.py` – QLoRA DPO + export aligned FP16
+  - `src/nba_game_recap_summarizer/finetuning/evaluate_dpo.py` – preference metrics and reports
+- Entry scripts for SageMaker:
+  - `scripts/dpo_preprocessing.py`, `scripts/dpo_tune.py`, `scripts/evaluate_dpo.py`
+- SageMaker pipeline:
+  - `.github/scripts/sagemaker_pipeline_dpo.py` + `.github/scripts/trigger_sagemaker_pipeline_dpo.py`
+  - Inputs: staged pairs CSV and a base model (SFT’s `hf_model_merged` via `BaseModelPath`)
+  - Outputs: `…/output/artifacts/<PIPELINE_RUN_ID>/dpo/hf_model_merged_aligned/` + reports
+- Workflows (manual):
+  - `dev-dpo-tune.yaml`, `staging-dpo-tune.yaml`, `prod-dpo-tune.yaml`
+  - Provide `pipeline_id` (source SFT model) and environment; workflow wires the base model path for DPO.
+
+### Observability
+- Preprocessing: writes `dpo_preprocessing_report.json` (counts, lengths).
+- Training: W&B logging by default; `training_loss.json/png` artifacts.
+- Evaluation: `evaluation_results.json`, `dpo_evaluation_examples.csv`, and `reports/eval_metrics.json` (surfaced via pipeline PropertyFile).
+
+### Deployment
+- Manual deploy workflows (EC2/ECS) allow selecting:
+  - `hf_model` (supervised-only) or
+  - `dpo/hf_model_merged_aligned` (style-aligned).
+- Inference S3 loader prefers the aligned model automatically when present.
+
+### Notes on KTO (why we moved to DPO)
+We first tried KTO using `narrative_style_score` directly as reward, but hit numerical instability (NaN/Inf) and sensitivity to reference/policy proximity (near-zero KL). Even after optimizer/mixed-precision/gradient tweaks, it remained brittle. DPO with chosen/rejected pairs trained stably and improved narrative style, so the production path uses DPO.
 
 ## 🏭 Production Infrastructure
 
