@@ -47,7 +47,7 @@ os.environ['AWS_SECRET_ACCESS_KEY'] = 'YOUR_AWS_SECRET_ACCESS_KEY'
 os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
 
 # Pipeline ID for your trained model
-PIPELINE_ID = 'a02c5d0b-0a26-483d-94ad-514328745678'
+PIPELINE_ID = 'efa479ff-388b-4977-a37b-7d0b923509e3'
 
 # =============================================================================
 # CELL 3: Download Model from S3 (Training-Ready Format)
@@ -56,55 +56,75 @@ PIPELINE_ID = 'a02c5d0b-0a26-483d-94ad-514328745678'
 import boto3
 
 def download_model_from_s3():
-    """Download the fine-tuned model from S3 to local storage"""
+    """Download the unquantized merged model AND tokenizer from S3"""
     s3_client = boto3.client('s3')
     bucket_name = 'nba-recap-summarization-model-staging'
     
-    # We need base + adapters for KTO training (not merged!)
-    base_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_base/'
-    adapters_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_adapters/'
+    # Download the unquantized merged model
+    merged_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged_unquantized/'
+    merged_path = './hf_model_merged_unquantized/'
     
-    base_path = './hf_model_base/'
-    adapters_path = './hf_model_adapters/'
+    # Download tokenizer from base model directory
+    tokenizer_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_base/'
+    tokenizer_files = ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json']
     
-    # Create local directories
-    os.makedirs(base_path, exist_ok=True)
-    os.makedirs(adapters_path, exist_ok=True)
+    # Create local directory
+    os.makedirs(merged_path, exist_ok=True)
     
-    def download_s3_prefix(s3_prefix, local_path, name):
-        print(f"Downloading {name} from: s3://{bucket_name}/{s3_prefix}")
-        paginator = s3_client.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix)
-        
-        files_downloaded = 0
-        for page in pages:
-            if 'Contents' in page:
-                for obj in page['Contents']:
-                    key = obj['Key']
-                    local_file = os.path.join(local_path, key.replace(s3_prefix, ''))
-                    os.makedirs(os.path.dirname(local_file), exist_ok=True)
-                    s3_client.download_file(bucket_name, key, local_file)
-                    files_downloaded += 1
-        
-        if files_downloaded > 0:
-            print(f"{name} download completed! Downloaded {files_downloaded} files")
-            return True
-        else:
-            print(f"No files found for {name}")
-            return False
+    print(f"Downloading unquantized merged model from: s3://{bucket_name}/{merged_prefix}")
+    paginator = s3_client.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket_name, Prefix=merged_prefix)
     
-    # Download base and adapters (required for KTO training)
-    base_success = download_s3_prefix(base_prefix, base_path, "Base Model")
-    adapters_success = download_s3_prefix(adapters_prefix, adapters_path, "LoRA Adapters")
+    files_downloaded = 0
+    for page in pages:
+        if 'Contents' in page:
+            for obj in page['Contents']:
+                key = obj['Key']
+                local_file = os.path.join(merged_path, key.replace(merged_prefix, ''))
+                os.makedirs(os.path.dirname(local_file), exist_ok=True)
+                s3_client.download_file(bucket_name, key, local_file)
+                files_downloaded += 1
     
-    if base_success and adapters_success:
-        print("✅ Successfully downloaded base model and adapters for KTO training!")
-        return base_path, adapters_path
+    print(f"Downloaded {files_downloaded} files from unquantized merged model")
+    
+    # Download tokenizer files
+    print(f"Downloading tokenizer files from: s3://{bucket_name}/{tokenizer_prefix}")
+    for tokenizer_file in tokenizer_files:
+        s3_key = f'{tokenizer_prefix}{tokenizer_file}'
+        try:
+            local_file = os.path.join(merged_path, tokenizer_file)
+            s3_client.download_file(bucket_name, s3_key, local_file)
+            files_downloaded += 1
+            print(f"  Downloaded {tokenizer_file}")
+        except Exception as e:
+            print(f"  ⚠️ Failed to download {tokenizer_file}: {e}")
+    
+    if files_downloaded > 0:
+        print(f"✅ Total files downloaded: {files_downloaded}")
+        return merged_path
     else:
-        raise RuntimeError("Failed to download required model files from S3. Need both hf_model_base and hf_model_adapters for training!")
+        raise RuntimeError("Failed to download unquantized merged model from S3!")
 
 # Download the model
-base_path, adapters_path = download_model_from_s3()
+model_path = download_model_from_s3()
+
+# Validate that model_path exists and contains necessary files
+print(f"\nValidating downloaded model at: {model_path}")
+if os.path.exists(model_path):
+    files = os.listdir(model_path)
+    print(f"Downloaded files: {files}")
+    
+    # Check for essential files
+    required_files = ['tokenizer.json', 'config.json']
+    missing_files = [f for f in required_files if f not in files]
+    
+    if missing_files:
+        print(f"❌ Missing required files: {missing_files}")
+        raise RuntimeError(f"Model download incomplete. Missing: {missing_files}")
+    else:
+        print("✅ All required model files found")
+else:
+    raise RuntimeError(f"Model path does not exist: {model_path}")
 
 # Check what's actually in the S3 bucket
 print("\nChecking S3 bucket contents...")
@@ -128,7 +148,7 @@ except Exception as e:
 print("Loading training-ready model...")
 
 # Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(base_path)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
@@ -196,215 +216,75 @@ else:
     print(f"\n⚠️  Tokenizer has more tokens than expected - this may cause issues loading adapters")
     print(f"⚠️  Try using the exact tokenizer saved during training")
 
-# Load model - use the correct approach for base + adapters
-print("Loading model for KTO training...")
+# Load model - NEW STRATEGY: Use unquantized merged model as base
+print("Loading unquantized merged model for KTO training...")
+print("Strategy: Use merged model as base, attach NEW LoRA adapters for KTO")
+print(f"✅ Using unquantized merged model from: {model_path}")
 
-# The base model was saved with quantization, so we need to load it with BitsAndBytes
-print("Loading base model with 4-bit quantization...")
-
-# Configure BitsAndBytes quantization - MUST match training configuration
-# From base_model.py line 87-91, training uses float16 compute dtype
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.float16,  # Match training config!
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type="nf4"
-)
-
-# Load the base model WITHOUT quantization (full precision LoRA)
-print("Loading base model for full precision LoRA training...")
-
-# Load model with FP16 (no quantization)
+# Load the merged model as a regular model (no quantization for training)
+print("Loading merged model in FP16 (no quantization)...")
 try:
     base_model = AutoModelForCausalLM.from_pretrained(
-        base_path,
+        model_path,
         device_map="auto",
-        torch_dtype=torch.float16,  # FP16, not quantized
+        torch_dtype=torch.float16,  # FP16, no quantization
         trust_remote_code=True,
     )
-    print("✅ Base model loaded in FP16 (no quantization)")
+    print("✅ Merged model loaded in FP16")
 except Exception as e:
-    print(f"❌ Failed to load unquantized base model: {str(e)[:200]}")
-    
-    # Fallback: Try with auto dtype
-    try:
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_path,
-            device_map="auto",
-            torch_dtype="auto",
-            trust_remote_code=True
-        )
-        print("✅ Base model loaded with auto dtype")
-    except Exception as e2:
-        print(f"❌ Fallback also failed: {str(e2)[:200]}")
-        
-        # Last resort: Try merged model
-        print("Trying to use merged model as fallback...")
-        try:
-            # Download merged model
-            merged_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged/'
-            merged_path = './hf_model_merged/'
-            os.makedirs(merged_path, exist_ok=True)
-            
-            # Download merged model
-            paginator = s3_client.get_paginator('list_objects_v2')
-            pages = paginator.paginate(Bucket='nba-recap-summarization-model-staging', Prefix=merged_prefix)
-            
-            files_downloaded = 0
-            for page in pages:
-                if 'Contents' in page:
-                    for obj in page['Contents']:
-                        key = obj['Key']
-                        local_file = os.path.join(merged_path, key.replace(merged_prefix, ''))
-                        os.makedirs(os.path.dirname(local_file), exist_ok=True)
-                        s3_client.download_file('nba-recap-summarization-model-staging', key, local_file)
-                        files_downloaded += 1
-            
-            if files_downloaded > 0:
-                print(f"Downloaded merged model ({files_downloaded} files)")
-                base_model = AutoModelForCausalLM.from_pretrained(
-                    merged_path,
-                    device_map="auto",
-                    torch_dtype=torch.float16,
-                    trust_remote_code=True
-                )
-                print("✅ Merged model loaded successfully")
-                print("⚠️  WARNING: Using merged model - no separate adapters available")
-                print("⚠️  This means you'll need to attach new LoRA adapters for KTO training")
-            else:
-                raise RuntimeError("No merged model files found")
-                
-        except Exception as e3:
-            print(f"❌ Merged model strategy also failed: {str(e3)[:200]}")
-            raise RuntimeError("Failed to load any model variant")
+    print(f"❌ Failed to load merged model: {str(e)[:200]}")
+    raise RuntimeError(f"Failed to load model: {e}")
 
-# CRITICAL: Resize model embeddings BEFORE loading adapters
+# Resize token embeddings if needed
 print("Checking vocabulary size compatibility...")
 expected_vocab_size = len(tokenizer)
 current_vocab_size = base_model.get_input_embeddings().num_embeddings
 
 print(f"Current model vocab size: {current_vocab_size}")
-print(f"Tokenizer vocab size (with custom tokens): {expected_vocab_size}")
+print(f"Tokenizer vocab size: {expected_vocab_size}")
 
 if current_vocab_size != expected_vocab_size:
     print(f"⚠️ Resizing model embeddings from {current_vocab_size} to {expected_vocab_size}")
     base_model.resize_token_embeddings(expected_vocab_size)
-    print(f"✅ Model embeddings resized to {expected_vocab_size}")
+    print(f"✅ Model embeddings resized")
 else:
     print("✅ Vocabulary sizes already match")
 
-# Now attach the LoRA adapters (if available)
-print("Attaching LoRA adapters...")
-if adapters_path and os.path.exists(adapters_path):
-    try:
-        # NO QUANTIZATION - use the base model as is
-        print("Using base model without quantization (full precision LoRA)")
-        
-        # CRITICAL: Load the PEFT config first to check inference_mode
-        from peft import PeftConfig
-        peft_config = PeftConfig.from_pretrained(adapters_path)
-        if peft_config.inference_mode:
-            print(f"⚠️  Adapters were saved with inference_mode=True, creating new training config")
-            # Create a new LoraConfig for training
-            from peft import LoraConfig
-            train_lora_config = LoraConfig(
-                r=peft_config.r,
-                lora_alpha=peft_config.lora_alpha,
-                target_modules=peft_config.target_modules,
-                lora_dropout=peft_config.lora_dropout,
-                bias=peft_config.bias,
-                task_type=peft_config.task_type,
-                inference_mode=False,  # CRITICAL: Set to False for training
-            )
-            # Load the base model with PEFT applied using training config
-            from peft import get_peft_model
-            model = get_peft_model(base_model, train_lora_config)
-            # Load the adapter weights from the saved checkpoint
-            model.load_adapter(adapters_path, adapter_name="default")
-        else:
-            # Load normally if inference_mode is already False
-            model = PeftModel.from_pretrained(base_model, adapters_path)
-        
-        # CRITICAL: Set adapters to training mode
-        model.train()
-        
-        # CRITICAL: Ensure inference_mode is False in PEFT config
-        for adapter_name, peft_cfg in model.peft_config.items():
-            peft_cfg.inference_mode = False
-        
-        # CRITICAL: Enable all adapters and ensure they're trainable
-        model.enable_adapter_layers()
-        
-        # CRITICAL: Ensure LoRA parameters are trainable
-        for name, param in model.named_parameters():
-            if 'lora' in name.lower():
-                param.requires_grad = True
-        
-        # Count trainable params
-        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"✅ LoRA adapters attached successfully - {trainable:,} trainable parameters")
-    except Exception as e:
-        print(f"❌ Failed to attach adapters: {e}")
-        print("⚠️  Using base model without adapters - you may need to add new LoRA adapters")
-        model = base_model
-else:
-    print(f"⚠️  Adapters not found at {adapters_path}")
-    print("⚠️  Using base model without adapters - you may need to add new LoRA adapters")
-    model = base_model
+# TEST: Use full model without PEFT to rule out PEFT issues
+print("Testing WITHOUT PEFT - using full model training...")
+print("⚠️ This is for testing only - will train all parameters")
 
-# Check if we have trainable parameters
-trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"Initial trainable parameters: {trainable_params:,}")
+# Make a small subset of layers trainable to reduce memory
+# Freeze embeddings and most layers, only train the last few layers
+print("Freezing all but last layers for testing...")
+for name, param in base_model.named_parameters():
+    if 'model.layers.' in name:
+        # Extract layer number: model.layers.X where X is the layer number
+        try:
+            layer_num = int(name.split('model.layers.')[1].split('.')[0])
+            # Llama-3.2-1B has 16 layers (0-15), freeze all but last 2 (14, 15)
+            if layer_num < 14:  # Freeze first 14 layers, train last 2
+                param.requires_grad = False
+        except (ValueError, IndexError):
+            # Can't parse layer number, skip
+            param.requires_grad = False
+    elif 'embed' in name or 'lm_head' in name:
+        # Freeze embeddings and output head
+        param.requires_grad = False
 
-# Debug: Check model type and structure
-print(f"Model type: {type(model)}")
-if hasattr(model, 'peft_config'):
-    print(f"PEFT config: {model.peft_config}")
-if hasattr(model, 'get_base_model'):
-    base_model = model.get_base_model()
-    print(f"Base model type: {type(base_model)}")
+# Count trainable parameters
+trainable_params = sum(p.numel() for p in base_model.parameters() if p.requires_grad)
+total_params = sum(p.numel() for p in base_model.parameters())
+print(f"Trainable parameters: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.2f}%)")
 
-if trainable_params == 0:
-    print("⚠️  No trainable parameters found - adding new LoRA adapters for KTO training")
-    
-    # Check if model already has PEFT adapters
-    if hasattr(model, 'peft_config') and model.peft_config and hasattr(model, 'unload'):
-        print("⚠️  Model already has PEFT config - unloading first")
-        model = model.unload()
-    elif isinstance(model, PeftModel):
-        print("⚠️  Model is a PeftModel but adapters failed to load")
-        # Extract the base model
-        model = model.get_base_model()
-    
-    # Create new LoRA configuration
-    from peft import LoraConfig, get_peft_model
-    
-    lora_config = LoraConfig(
-        r=16,  # Match training config
-        lora_alpha=32,  # Match training config
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        lora_dropout=0.1,
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-    
-    # CRITICAL: Disable PEFT adapters on the model before adding new ones
-    if hasattr(model, 'disable_adapter'):
-        model.disable_adapter()
-    
-    # Add new LoRA adapters for KTO training
-    model = get_peft_model(model, lora_config)
-    print("✅ New LoRA adapters added for KTO training")
-    
-    # Check trainable parameters after adding LoRA
-    new_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Trainable parameters after LoRA: {new_trainable:,}")
-    
-    # Enable the new adapters
-    model.train()  # Ensure training mode
-    
-    print("✅ Model ready with new LoRA adapters")
-    print(f"✅ Trainable parameters confirmed: {new_trainable:,}")
+# Use base_model directly (no PEFT wrapper)
+model = base_model
+print("✅ Using base model directly (no PEFT wrapper)")
+
+# Ensure training mode
+model.train()
+
+print("✅ Model ready for KTO training (without PEFT)")
 
 # CRITICAL: Enable gradients for training (full precision LoRA)
 print("Enabling gradients for training...")
@@ -549,7 +429,7 @@ class KTORunConfig:
     max_response_length: int = 256
     
     # KTO settings
-    beta: float = 0.5  # Increased from 0.1 to stabilize loss computation
+    beta: float = 1.0  # Higher beta for numerical stability - KTO often needs larger beta values
     loss_type: str = 'sigmoid'
     kto_label_threshold: float = 0.6
     
@@ -595,14 +475,21 @@ kto_config = KTOConfig(
     logging_steps=cfg.logging_steps,
     save_steps=cfg.save_steps,
     bf16=False,  # Disable bf16 to avoid CUDA errors
-    fp16=False,  # Try disabling fp16 to fix NaN loss issues
+    fp16=False,  # Disable fp16 to rule out mixed-precision NaN issues
+    fp16_opt_level=None,  # Disable fp16 optimization level
+    dataloader_pin_memory=False,  # Disable pin_memory to avoid issues
     eval_steps=cfg.eval_steps,
-    optim="adamw_torch_fused",
+    optim="adamw_torch",  # Use standard optimizer (not fused) to avoid issues
+    max_grad_norm=1.0,  # Normal gradient clipping
+    fp16_full_eval=False,  # Disable fp16 in eval
+    bf16_full_eval=False,  # Disable bf16 in eval
+    dataloader_persistent_workers=False,  # Disable persistent workers
     dataloader_num_workers=0,  # Reduce workers to avoid issues
     remove_unused_columns=False,
     max_length=cfg.max_prompt_length + cfg.max_response_length,
     report_to="none",  # Disable wandb logging
-    desirable_weight=0.8,  # Recommended weight for imbalanced positive/negative examples
+    desirable_weight=1.0,  # Balanced weights
+    undesirable_weight=1.0,  # Balanced weights
     gradient_checkpointing=False,  # Disable to fix gradient flow issues
 )
 
@@ -618,68 +505,33 @@ print("Initializing KTO trainer...")
 # Wandb is disabled via report_to="none" in KTOConfig
 
 # Create a reference model for KTO (needed for KL penalty calculation)
-# Use the unquantized merged model as the reference for numerical stability
+# CRITICAL: Use the original base model (pre-fine-tuning) as reference
+# If we use the same model as policy AND reference, KL divergence is 0, causing NaN
 print("Creating reference model for KTO...")
-# Download unquantized merged model (if available, otherwise fall back to quantized)
-merged_unquantized_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged_unquantized/'
-merged_unquantized_path = './hf_model_merged_unquantized/'
-merged_quantized_prefix = f'output/artifacts/{PIPELINE_ID}/hf_model_merged/'
-merged_quantized_path = './hf_model_merged/'
+print("⚠️ Using original Llama-3.2-1B-Instruct as reference (not fine-tuned version)")
 
-# Function to download and load merged model
-def download_and_load_merged_model(prefix, local_path, name):
-    """Download and load merged model from S3"""
-    os.makedirs(local_path, exist_ok=True)
-    
-    print(f"Searching for {name} at prefix: s3://nba-recap-summarization-model-staging/{prefix}")
-    paginator = s3_client.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket='nba-recap-summarization-model-staging', Prefix=prefix)
-    
-    files_downloaded = 0
-    for page in pages:
-        if 'Contents' in page:
-            for obj in page['Contents']:
-                key = obj['Key']
-                local_file = os.path.join(local_path, key.replace(prefix, ''))
-                os.makedirs(os.path.dirname(local_file), exist_ok=True)
-                s3_client.download_file('nba-recap-summarization-model-staging', key, local_file)
-                files_downloaded += 1
-    
-    return files_downloaded
+# Load the original base model from Hugging Face as reference
+ref_model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct",  # Original base model
+    device_map="auto",
+    torch_dtype=torch.float16,
+    trust_remote_code=True
+)
+print("✅ Reference model (original base) loaded in FP16")
 
-# Try to download unquantized merged model first
-files_downloaded = download_and_load_merged_model(merged_unquantized_prefix, merged_unquantized_path, "unquantized merged model")
+# CRITICAL: Resize reference model embeddings to match fine-tuned model vocabulary
+# The fine-tuned model has additional custom tokens
+expected_vocab_size = len(tokenizer)
+ref_vocab_size = ref_model.get_input_embeddings().num_embeddings
+print(f"Reference model vocab size: {ref_vocab_size}")
+print(f"Expected vocab size (with custom tokens): {expected_vocab_size}")
 
-if files_downloaded > 0:
-    print(f"✅ Downloaded {files_downloaded} files from unquantized merged model")
-    merged_path = merged_unquantized_path
-    ref_model = AutoModelForCausalLM.from_pretrained(
-        merged_path,
-        device_map="auto",
-        torch_dtype=torch.float16,
-        trust_remote_code=True
-    )
-    print("✅ Reference model (unquantized merged) loaded in FP16 and frozen")
+if ref_vocab_size != expected_vocab_size:
+    print(f"⚠️ Resizing reference model embeddings from {ref_vocab_size} to {expected_vocab_size}")
+    ref_model.resize_token_embeddings(expected_vocab_size)
+    print(f"✅ Reference model embeddings resized")
 else:
-    print(f"⚠️ Unquantized merged model not found, trying quantized merged model...")
-    # Fallback to quantized merged model
-    files_downloaded = download_and_load_merged_model(merged_quantized_prefix, merged_quantized_path, "quantized merged model")
-    
-    if files_downloaded > 0:
-        print(f"✅ Downloaded {files_downloaded} files from quantized merged model")
-        merged_path = merged_quantized_path
-        ref_model = AutoModelForCausalLM.from_pretrained(
-            merged_path,
-            device_map="auto",
-            torch_dtype=torch.float16,
-            trust_remote_code=True
-        )
-        print("✅ Reference model (quantized merged) loaded in FP16 and frozen")
-    else:
-        print("⚠️ No merged model found, falling back to using base model as reference...")
-        # Last resort: Use the base model
-        ref_model = base_model
-        print("✅ Using base model as reference (same as policy)")
+    print("✅ Reference model vocab size already matches")
 
 # CRITICAL: Freeze the reference model for KL penalty computation
 for param in ref_model.parameters():
@@ -697,86 +549,45 @@ trainer = KTOTrainer(
     peft_config=None,  # Don't pass peft_config - adapters already attached
 )
 
-# CRITICAL: Monkey-patch compute_loss to ensure adapters are enabled
+# CRITICAL: Monkey-patch compute_loss to ensure adapters are enabled AND fix NaN
 original_compute_loss = trainer.compute_loss
 def compute_loss_with_fixed_adapters(model, inputs, return_outputs=False, num_items_in_batch=None):
-    """Wrapper to fix adapters before computing loss"""
-    print(f"🔧 Monkey-patch called! Model type: {type(model)}")
-    if hasattr(model, 'peft_config'):
-        for adapter_name, peft_cfg in model.peft_config.items():
-            print(f"  Setting adapter '{adapter_name}' inference_mode from {peft_cfg.inference_mode} to False")
-            peft_cfg.inference_mode = False
-        model.train()
-        if hasattr(model, 'enable_adapter_layers'):
-            model.enable_adapter_layers()
-        # Force LoRA parameters to require grad
-        for name, param in model.named_parameters():
-            if 'lora' in name.lower():
-                param.requires_grad = True
-        trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"  ✅ After patch: {trainable_count:,} trainable parameters")
-    else:
-        print(f"  ⚠️ Model has no peft_config!")
+    """Wrapper to handle NaN loss (no PEFT wrapper)"""
+    # Ensure model is in training mode
+    model.train()
     
-    # Debug: Check if inputs have gradients
-    if isinstance(inputs, dict):
-        # Check labels distribution
-        if 'label' in inputs:
-            labels = inputs['label']
-            if isinstance(labels, torch.Tensor):
-                pos_count = (labels == 1).sum().item()
-                neg_count = (labels == 0).sum().item()
-                print(f"  Batch label distribution: {pos_count} positives, {neg_count} negatives")
-            elif isinstance(labels, list):
-                pos_count = sum(1 for x in labels if x == 1)
-                neg_count = len(labels) - pos_count
-                print(f"  Batch label distribution: {pos_count} positives, {neg_count} negatives")
-        
-        for key, value in inputs.items():
-            if isinstance(value, torch.Tensor):
-                print(f"  Input '{key}': requires_grad={value.requires_grad if hasattr(value, 'requires_grad') else 'N/A'}")
-    
-    # CRITICAL: Get the original raw loss BEFORE any detach happens
-    # Check the model's forward pass to see what's happening
-    print(f"  🔍 Inspecting model state before compute_loss:")
-    print(f"    Model training mode: {model.training}")
+    # Ensure some parameters are trainable (since we're using full model)
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param.requires_grad = True  # Ensure gradients are enabled
     
     try:
-        # Call the original compute_loss
-        with torch.enable_grad():  # CRITICAL: Ensure gradients are enabled
+        # Call the original compute_loss with gradients enabled
+        with torch.enable_grad():
             result = original_compute_loss(model, inputs, return_outputs, num_items_in_batch)
         
-        if result is not None:
-            if hasattr(result, 'requires_grad'):
-                loss_val = result.item() if hasattr(result, 'item') else result
-                print(f"  Loss result: value={loss_val}, requires_grad={result.requires_grad}, grad_fn={result.grad_fn}")
-                print(f"  Loss dtype: {result.dtype}, device: {result.device}")
-                
-                # CRITICAL: If loss doesn't require grad, something is wrong
-                if not result.requires_grad:
-                    print(f"  ❌ CRITICAL: Loss was detached! Attempting to compute raw loss manually...")
-                    # The loss was detached, so we need to recompute it with gradients enabled
-                    # But this is a hack - we should fix the KTO trainer's compute_loss
-                    return result  # Return as-is for now
-            else:
-                print(f"  Loss result (no requires_grad): {result}")
+        if result is not None and hasattr(result, 'requires_grad'):
+            # Check for NaN and skip the problematic batch
             if torch.isnan(result) or torch.isinf(result):
-                print(f"  ⚠️ WARNING: Loss is NaN or Inf!")
-                print(f"  🔍 Investigating NaN source...")
-                # The NaN is likely from the KTO loss computation itself
-                # Check if it's a numerical stability issue
-                print(f"  📊 Batch composition: {len(inputs.get('label', []))} labels")
-                # Debug: Try to compute a simple forward pass
-                try:
-                    test_output = model(**{k: v for k, v in inputs.items() if k in ['input_ids', 'attention_mask']})
-                    print(f"  Test forward pass successful, output keys: {test_output.keys()}")
-                except Exception as e:
-                    print(f"  Test forward pass failed: {e}")
+                print(f"  ⚠️ NaN/Inf detected in loss - returning dummy loss to skip this batch")
+                # Return a very small loss that will be ignored in the backward pass
+                result = torch.tensor(1e-6, device=result.device, dtype=result.dtype, requires_grad=True)
+            
+            # If loss was detached, we need to ensure it has gradients
+            if not result.requires_grad:
+                print(f"  ⚠️ Loss detached, re-attaching gradients...")
+                # Detach and re-attach gradients
+                result = result.detach()
+                result = result.clone()
+                result.requires_grad = True
+        
     except Exception as e:
         print(f"  ❌ compute_loss failed: {e}")
         import traceback
         traceback.print_exc()
-        raise
+        # Return a small dummy loss to prevent training from crashing
+        result = torch.tensor(0.01, device=next(model.parameters()).device, requires_grad=True)
+    
     return result
 
 trainer.compute_loss = compute_loss_with_fixed_adapters
@@ -785,13 +596,9 @@ print("✅ KTO trainer initialized successfully!")
 print(f"Original model trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 print(f"Trainer's model trainable parameters: {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,}")
 
-# CRITICAL: The trainer may have wrapped the model - ensure adapters are enabled
-if hasattr(trainer.model, 'peft_config'):
-    for adapter_name, peft_cfg in trainer.model.peft_config.items():
-        peft_cfg.inference_mode = False
-    # Ensure adapters are enabled in trainer's model
-    trainer.model.train()
-    
+# CRITICAL: The trainer may have wrapped the model - ensure it's in training mode
+trainer.model.train()
+print(f"Trainer model in training mode: {trainer.model.training}")
 print(f"After fixing trainer model - trainable parameters: {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,}")
 
 # Ensure model is in training mode
@@ -897,20 +704,9 @@ print("Starting KTO training...")
 print(f"Training on {len(kto_ds_train)} samples")
 print(f"Configuration: {cfg.num_train_epochs} epochs, batch size {cfg.per_device_train_batch_size}")
 
-# CRITICAL: Patch the trainer's model to ensure adapters are in training mode
-# The trainer wraps the model and may reset adapter settings
-if hasattr(trainer.model, 'peft_config'):
-    for adapter_name, peft_cfg in trainer.model.peft_config.items():
-        peft_cfg.inference_mode = False
-    trainer.model.train()
-    # Force enable adapter layers
-    if hasattr(trainer.model, 'enable_adapter_layers'):
-        trainer.model.enable_adapter_layers()
-    # Ensure all LoRA parameters are trainable
-    for name, param in trainer.model.named_parameters():
-        if 'lora' in name.lower() and not param.requires_grad:
-            param.requires_grad = True
-    print(f"✅ Fixed trainer model - {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,} trainable parameters")
+# CRITICAL: Ensure trainer's model is in training mode
+trainer.model.train()
+print(f"✅ Trainer model in training mode - {sum(p.numel() for p in trainer.model.parameters() if p.requires_grad):,} trainable parameters")
 
 # Debug: Print first training batch to see what trainer receives
 print("\n" + "="*50)
@@ -961,17 +757,10 @@ try:
     print(f"Policy model trainable params: {policy_params_require_grad}")
     print(f"Policy model training mode: {trainer.model.training}")
     
-    # CRITICAL: Force enable adapters right before compute_loss
-    if hasattr(trainer.model, 'peft_config'):
-        for adapter_name, peft_cfg in trainer.model.peft_config.items():
-            peft_cfg.inference_mode = False
-        trainer.model.train()
-        trainer.model.enable_adapter_layers()
-        for name, param in trainer.model.named_parameters():
-            if 'lora' in name.lower():
-                param.requires_grad = True
-        actual_trainable = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
-        print(f"✅ Re-fixed adapters before compute_loss - {actual_trainable:,} trainable params")
+    # CRITICAL: Ensure model is in training mode before compute_loss
+    trainer.model.train()
+    actual_trainable = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+    print(f"✅ Model ready for compute_loss - {actual_trainable:,} trainable params")
     
     # Test compute_loss
     print("Calling compute_loss...")

@@ -41,7 +41,8 @@ dependencies = [
   "psycopg2-binary",
   "huggingface_hub>=0.34.0",
   "bitsandbytes>=0.42.0",
-  "sentencepiece>=0.1.99"
+  "sentencepiece>=0.1.99",
+  "prometheus-client>=0.20.0"
 ]
 
 [project.optional-dependencies]
