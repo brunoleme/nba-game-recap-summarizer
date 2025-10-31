@@ -65,27 +65,37 @@ async def load_model():
                 bucket_name = s3_path.split("/")[2]
                 key = "/".join(s3_path.split("/")[3:])
                 
-                # Download hf_model_merged from S3
-                s3_path = f"{key}/hf_model_merged"
+            # Download model from S3. Try aligned first, then merged, then hf_model
+            base_key = key.rstrip('/')
+            candidate_subdirs = [
+                "hf_model_merged_aligned",
+                "hf_model_merged",
+                "hf_model",
+            ]
+            # Attempt download for the first existing subdir
                 local_path = "/app/models/hf_model_merged"
                 os.makedirs(local_path, exist_ok=True)
-                
-                s3_client = boto3.client('s3')
-                logger.info(f"Downloading model from S3: s3://{bucket_name}/{s3_path}")
-                
-                # Download as a directory (multiple files)
+            
+            s3_client = boto3.client('s3')
+            files_downloaded = 0
+            for subdir in candidate_subdirs:
+                s3_path = f"{base_key}/{subdir}"
+                logger.info(f"Trying S3 model path: s3://{bucket_name}/{s3_path}")
                 paginator = s3_client.get_paginator('list_objects_v2')
                 pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_path)
-                
-                files_downloaded = 0
+                found_any = False
                 for page in pages:
                     if 'Contents' in page:
+                        found_any = True
                         for obj in page['Contents']:
                             file_key = obj['Key']
                             local_file_path = os.path.join(local_path, file_key.replace(s3_path, '').lstrip('/'))
                             os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
                             s3_client.download_file(bucket_name, file_key, local_file_path)
                             files_downloaded += 1
+                if found_any and files_downloaded > 0:
+                    logger.info(f"Downloaded model from subdir: {subdir}")
+                    break
                 
                 if files_downloaded > 0:
                     logger.info(f"Model downloaded successfully from S3 ({files_downloaded} files)")
