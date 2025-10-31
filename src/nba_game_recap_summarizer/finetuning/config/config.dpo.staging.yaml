@@ -49,10 +49,10 @@ data:
 
 evaluation:
   num_samples: 20
-  reports_dir: "/opt/ml/processing/output/model-artifacts/${env:PIPELINE_RUN_ID}/reports"
+  reports_dir: "/opt/ml/processing/output/model-artifacts/${oc.env:PIPELINE_RUN_ID}/reports"
 
 outputs:
-  output_dir: "/opt/ml/processing/output/model-artifacts/${env:PIPELINE_RUN_ID}/dpo"
+  output_dir: "/opt/ml/processing/output/model-artifacts/${oc.env:PIPELINE_RUN_ID}/dpo"
   save_hf_model_merged_aligned: true
   save_hf_model_merged_unquantized_aligned: false
 
