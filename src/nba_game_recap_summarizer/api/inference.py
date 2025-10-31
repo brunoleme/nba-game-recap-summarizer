@@ -2,11 +2,13 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError, Field, field_validator, ConfigDict
 from loguru import logger
 import os
+import time
 
 from nba_game_recap_summarizer.api.config import settings
 from nba_game_recap_summarizer.finetuning.models.llama_model import LlamaRecapSummarizationModel
 from nba_game_recap_summarizer.finetuning.utils.logger import setup_logger
 from nba_game_recap_summarizer.finetuning.utils.text_utils import clean_game_recap
+from prometheus_client import Counter, Histogram, Gauge, make_asgi_app
 
 # Initialize model variable at module level
 model = None
@@ -17,6 +19,46 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/",
     redoc_url="/redoc"
+)
+
+# Expose Prometheus metrics endpoint
+app.mount("/metrics", make_asgi_app())
+
+# Prometheus metrics
+REQUEST_COUNT = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "endpoint", "status_code"],
+)
+
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency in seconds",
+    ["method", "endpoint", "status_code"],
+    buckets=(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0),
+)
+
+EXCEPTIONS_COUNT = Counter(
+    "http_exceptions_total",
+    "Total HTTP exceptions",
+    ["method", "endpoint", "exception_type"],
+)
+
+MODEL_LOADED_GAUGE = Gauge(
+    "model_loaded",
+    "Whether the model is loaded (1) or not (0)",
+)
+
+SUMMARY_GEN_DURATION = Histogram(
+    "summary_generation_duration_seconds",
+    "Time spent generating a summary",
+    buckets=(0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0),
+)
+
+SUMMARY_LENGTH_CHARS = Histogram(
+    "summary_length_chars",
+    "Length of generated summaries in characters",
+    buckets=(100, 200, 400, 800, 1200, 2000, 4000, 8000),
 )
 
 # Setup logging
@@ -131,8 +173,10 @@ async def load_model():
                 )
         
         logger.info("Model loaded successfully")
+        MODEL_LOADED_GAUGE.set(1)
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
+        MODEL_LOADED_GAUGE.set(0)
         raise RuntimeError("Failed to initialize model")
 
 @app.get("/api")
@@ -195,7 +239,11 @@ async def summarize_recap(request: GameRecapRequest):
             raise HTTPException(status_code=400, detail="Empty game recap")
         game_recap = clean_game_recap(request.game_recap)
         logger.info("Generating game recap summary...")
+        start_gen = time.perf_counter()
         game_recap_summary = model.summarize_recap(game_recap=game_recap, max_length=request.max_length)
+        gen_duration = time.perf_counter() - start_gen
+        SUMMARY_GEN_DURATION.observe(gen_duration)
+        SUMMARY_LENGTH_CHARS.observe(len(game_recap_summary))
         logger.info("Game recap summarization with success")
         return GameRecapResponse(game_recap_summary=game_recap_summary)
     except ValidationError as e:
@@ -221,5 +269,19 @@ async def log_requests(request: Request, call_next):
             logger.debug(f"Request body: {body.decode()}")
     except Exception as e:
         logger.error(f"Could not log request body: {str(e)}")
-    response = await call_next(request)
-    return response
+    start_time = time.perf_counter()
+    method = request.method
+    endpoint = request.url.path
+    try:
+        response = await call_next(request)
+        duration = time.perf_counter() - start_time
+        status_code = str(response.status_code)
+        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
+        REQUEST_LATENCY.labels(method=method, endpoint=endpoint, status_code=status_code).observe(duration)
+        return response
+    except Exception as e:
+        duration = time.perf_counter() - start_time
+        EXCEPTIONS_COUNT.labels(method=method, endpoint=endpoint, exception_type=e.__class__.__name__).inc()
+        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code="500").inc()
+        REQUEST_LATENCY.labels(method=method, endpoint=endpoint, status_code="500").observe(duration)
+        raise
