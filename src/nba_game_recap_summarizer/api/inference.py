@@ -95,76 +95,74 @@ async def load_model():
         else:
             # Fallback to checkpoint loading or S3 download
             logger.info("Hugging Face model not found, attempting S3 download...")
-            
-            # Download model from S3 if it's an S3 path
+
             if str(settings.model_path).startswith("s3://"):
                 import boto3
-                import tempfile
-                import zipfile
-                
+
                 # Parse S3 path
                 s3_path = str(settings.model_path)
                 bucket_name = s3_path.split("/")[2]
                 key = "/".join(s3_path.split("/")[3:])
-                
-            # Download model from S3. Try aligned first, then merged, then hf_model
-            base_key = key.rstrip('/')
-            candidate_subdirs = [
-                "hf_model_merged_aligned",
-                "hf_model_merged",
-                "hf_model",
-            ]
-            # Attempt download for the first existing subdir
-                local_path = "/app/models/hf_model_merged"
-                os.makedirs(local_path, exist_ok=True)
-            
-            s3_client = boto3.client('s3')
-            files_downloaded = 0
-            for subdir in candidate_subdirs:
-                s3_path = f"{base_key}/{subdir}"
-                logger.info(f"Trying S3 model path: s3://{bucket_name}/{s3_path}")
-                paginator = s3_client.get_paginator('list_objects_v2')
-                pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_path)
-                found_any = False
-                for page in pages:
-                    if 'Contents' in page:
-                        found_any = True
-                        for obj in page['Contents']:
-                            file_key = obj['Key']
-                            local_file_path = os.path.join(local_path, file_key.replace(s3_path, '').lstrip('/'))
-                            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-                            s3_client.download_file(bucket_name, file_key, local_file_path)
-                            files_downloaded += 1
-                if found_any and files_downloaded > 0:
-                    logger.info(f"Downloaded model from subdir: {subdir}")
-                    break
-                
-                if files_downloaded > 0:
-                    logger.info(f"Model downloaded successfully from S3 ({files_downloaded} files)")
-                    
-                    # Load the downloaded model
-                    from transformers import AutoTokenizer, AutoModelForCausalLM
-                    import torch
-                    
-                    tokenizer = AutoTokenizer.from_pretrained(local_path)
-                    model_hf = AutoModelForCausalLM.from_pretrained(
-                        local_path,
-                        torch_dtype=torch.float16,
-                        device_map="auto"
-                    )
-                    
-                    model = LlamaRecapSummarizationModel(
-                        model_name="meta-llama/Llama-3.2-1B-Instruct",
-                        tokenizer=tokenizer,
-                        model_hf=model_hf
-                    )
-                else:
-                    logger.error("No files found in S3 path")
-                    raise RuntimeError("No model found in S3")
-                    
-            except Exception as e:
-                logger.error(f"Failed to download model from S3: {str(e)}")
-                raise
+
+                try:
+                    # Download model from S3. Try aligned first, then merged, then hf_model
+                    base_key = key.rstrip('/')
+                    candidate_subdirs = [
+                        "hf_model_merged_aligned",
+                        "hf_model_merged",
+                        "hf_model",
+                    ]
+
+                    # Attempt download for the first existing subdir
+                    local_path = "/app/models/hf_model_merged"
+                    os.makedirs(local_path, exist_ok=True)
+
+                    s3_client = boto3.client('s3')
+                    files_downloaded = 0
+                    for subdir in candidate_subdirs:
+                        s3_prefix = f"{base_key}/{subdir}"
+                        logger.info(f"Trying S3 model path: s3://{bucket_name}/{s3_prefix}")
+                        paginator = s3_client.get_paginator('list_objects_v2')
+                        pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix)
+                        found_any = False
+                        for page in pages:
+                            if 'Contents' in page:
+                                found_any = True
+                                for obj in page['Contents']:
+                                    file_key = obj['Key']
+                                    local_file_path = os.path.join(local_path, file_key.replace(s3_prefix, '').lstrip('/'))
+                                    os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                                    s3_client.download_file(bucket_name, file_key, local_file_path)
+                                    files_downloaded += 1
+                        if found_any and files_downloaded > 0:
+                            logger.info(f"Downloaded model from subdir: {subdir}")
+                            break
+
+                    if files_downloaded > 0:
+                        logger.info(f"Model downloaded successfully from S3 ({files_downloaded} files)")
+
+                        # Load the downloaded model
+                        from transformers import AutoTokenizer, AutoModelForCausalLM
+                        import torch
+
+                        tokenizer = AutoTokenizer.from_pretrained(local_path)
+                        model_hf = AutoModelForCausalLM.from_pretrained(
+                            local_path,
+                            torch_dtype=torch.float16,
+                            device_map="auto"
+                        )
+
+                        model = LlamaRecapSummarizationModel(
+                            model_name="meta-llama/Llama-3.2-1B-Instruct",
+                            tokenizer=tokenizer,
+                            model_hf=model_hf
+                        )
+                    else:
+                        logger.error("No files found in S3 path")
+                        raise RuntimeError("No model found in S3")
+                except Exception as e:
+                    logger.error(f"Failed to download model from S3: {str(e)}")
+                    raise
             else:
                 # Fallback to checkpoint loading
                 logger.info(f"Loading model from checkpoint: {settings.model_path}")
