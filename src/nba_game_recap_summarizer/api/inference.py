@@ -73,8 +73,8 @@ async def load_model():
         
         loaded_successfully = False
 
-        # Load from local Hugging Face format (try standard then merged paths)
-        for hf_model_path in ["/app/models/hf_model", "/app/models/hf_model_merged"]:
+        # Load from local Hugging Face format (prefer aligned, then merged)
+        for hf_model_path in ["/app/models/hf_model_merged_aligned", "/app/models/hf_model_merged"]:
             if os.path.exists(hf_model_path) and os.path.exists(os.path.join(hf_model_path, "config.json")):
                 logger.info(f"Loading model from Hugging Face format: {hf_model_path}")
                 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -113,7 +113,6 @@ async def load_model():
                     candidate_subdirs = [
                         "hf_model_merged_aligned",
                         "hf_model_merged",
-                        "hf_model",
                     ]
 
                     # Attempt download for the first existing subdir
