@@ -71,28 +71,31 @@ async def load_model():
     try:
         global model
         
-        # Load from Hugging Face format
-        hf_model_path = "/app/models/hf_model_merged"
-        if os.path.exists(hf_model_path) and os.path.exists(os.path.join(hf_model_path, "config.json")):
-            logger.info(f"Loading model from Hugging Face format: {hf_model_path}")
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            import torch
-            
-            # Load tokenizer and model directly from HF format
-            tokenizer = AutoTokenizer.from_pretrained(hf_model_path)
-            model_hf = AutoModelForCausalLM.from_pretrained(
-                hf_model_path,
-                torch_dtype=torch.float16,
-                device_map="auto"
-            )
-            
-            # Create model instance with loaded components
-            model = LlamaRecapSummarizationModel(
-                model_name="meta-llama/Llama-3.2-1B-Instruct",
-                tokenizer=tokenizer,
-                model_hf=model_hf
-            )
-        else:
+        loaded_successfully = False
+
+        # Load from local Hugging Face format (prefer aligned, then merged)
+        for hf_model_path in ["/app/models/hf_model_merged_aligned", "/app/models/hf_model_merged"]:
+            if os.path.exists(hf_model_path) and os.path.exists(os.path.join(hf_model_path, "config.json")):
+                logger.info(f"Loading model from Hugging Face format: {hf_model_path}")
+                from transformers import AutoTokenizer, AutoModelForCausalLM
+                import torch
+
+                tokenizer = AutoTokenizer.from_pretrained(hf_model_path)
+                model_hf = AutoModelForCausalLM.from_pretrained(
+                    hf_model_path,
+                    torch_dtype=torch.float16,
+                    device_map="auto"
+                )
+
+                model = LlamaRecapSummarizationModel(
+                    model_name="meta-llama/Llama-3.2-1B-Instruct",
+                    tokenizer=tokenizer,
+                    model_hf=model_hf
+                )
+                loaded_successfully = True
+                break
+
+        if not loaded_successfully:
             # Fallback to checkpoint loading or S3 download
             logger.info("Hugging Face model not found, attempting S3 download...")
 
@@ -110,7 +113,6 @@ async def load_model():
                     candidate_subdirs = [
                         "hf_model_merged_aligned",
                         "hf_model_merged",
-                        "hf_model",
                     ]
 
                     # Attempt download for the first existing subdir
@@ -157,9 +159,9 @@ async def load_model():
                             tokenizer=tokenizer,
                             model_hf=model_hf
                         )
+                        loaded_successfully = True
                     else:
-                        logger.error("No files found in S3 path")
-                        raise RuntimeError("No model found in S3")
+                        logger.warning("No files found in S3 path; skipping S3 model load")
                 except Exception as e:
                     logger.error(f"Failed to download model from S3: {str(e)}")
                     raise
@@ -169,9 +171,14 @@ async def load_model():
                 model = LlamaRecapSummarizationModel.load_model_from_checkpoint(
                     checkpoint_path=str(settings.model_path),
                 )
+                loaded_successfully = True
         
-        logger.info("Model loaded successfully")
-        MODEL_LOADED_GAUGE.set(1)
+        if loaded_successfully:
+            logger.info("Model loaded successfully")
+            MODEL_LOADED_GAUGE.set(1)
+        else:
+            logger.warning("Model not loaded; service will report unhealthy until model is available")
+            MODEL_LOADED_GAUGE.set(0)
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
         MODEL_LOADED_GAUGE.set(0)
