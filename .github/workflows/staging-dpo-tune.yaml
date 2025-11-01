@@ -47,9 +47,9 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build training image
+      - name: Build training image (DPO)
         run: |
-          docker build -t $ECR_REPOSITORY_URI:$IMAGE_TAG -f Dockerfile.training .
+          docker build -t $ECR_REPOSITORY_URI:$IMAGE_TAG -f Dockerfile.dpo.training .
           docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
 
   trigger-sagemaker-dpo:
