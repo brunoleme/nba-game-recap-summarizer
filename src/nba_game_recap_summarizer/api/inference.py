@@ -108,21 +108,23 @@ async def load_model():
                 key = "/".join(s3_path.split("/")[3:])
 
                 try:
-                    # Download model from S3. Try aligned first, then merged, then hf_model
-                    base_key = key.rstrip('/')
-                    candidate_subdirs = [
-                        "hf_model_merged_aligned",
-                        "hf_model_merged",
-                    ]
+                    # Prepare prefixes to try. If the provided key already points
+                    # to a specific subdir, try it directly; otherwise try aligned then merged
+                    candidate_subdirs = ["hf_model_merged_aligned", "hf_model_merged"]
+                    prefixes_to_try = []
+                    if any(key.rstrip('/').endswith(sub) for sub in candidate_subdirs):
+                        prefixes_to_try = [key.rstrip('/')]
+                    else:
+                        base_key = key.rstrip('/')
+                        prefixes_to_try = [f"{base_key}/{sub}" for sub in candidate_subdirs]
 
-                    # Attempt download for the first existing subdir
+                    # Attempt download for the first existing prefix
                     local_path = "/app/models/hf_model_merged"
                     os.makedirs(local_path, exist_ok=True)
 
                     s3_client = boto3.client('s3')
                     files_downloaded = 0
-                    for subdir in candidate_subdirs:
-                        s3_prefix = f"{base_key}/{subdir}"
+                    for s3_prefix in prefixes_to_try:
                         logger.info(f"Trying S3 model path: s3://{bucket_name}/{s3_prefix}")
                         paginator = s3_client.get_paginator('list_objects_v2')
                         pages = paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix)
