@@ -1,0 +1,26 @@
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel
+
+WORKDIR /app
+
+# Install uv
+RUN pip install --upgrade pip && \
+    pip install uv
+
+# Copy project files
+COPY . .
+
+# Install DPO-specific training dependencies
+RUN uv pip install --system -r requirements-sagemaker-dpo.txt
+
+# Install project in editable mode (without dependencies)
+RUN uv pip install --system -e . --no-deps
+
+# Set environment variable for Python module resolution
+ENV PYTHONPATH=/app
+
+# Memory optimization environment variables
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+ENV CUDA_LAUNCH_BLOCKING=1
+ENV OMP_NUM_THREADS=1
+
+
