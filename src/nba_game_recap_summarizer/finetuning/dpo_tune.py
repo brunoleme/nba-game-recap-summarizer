@@ -126,20 +126,14 @@ def dpo_tune(cfg) -> str:
         gradient_checkpointing=False,
     )
 
-    # Compatibility shim: accommodate transformers Trainer calling get_batch_samples with an extra device arg
-    class PatchedDPOTrainer(DPOTrainer):
-        def get_batch_samples(self, epoch_iterator, num_batches, device=None):  # type: ignore[override]
-            # TRL's DPOTrainer expects (epoch_iterator, num_batches); ignore device if passed
-            return DPOTrainer.get_batch_samples(self, epoch_iterator, num_batches)
-
     logger.info("Initializing DPOTrainer")
-    trainer = PatchedDPOTrainer(
+    trainer = DPOTrainer(
         model=model,
         ref_model=None,
         args=dpo_args,
         train_dataset=dpo_train,
         eval_dataset=dpo_eval,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
     )
 
     start = time.time()
