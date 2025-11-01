@@ -218,13 +218,13 @@ class TestModelLoading:
         
         with TestClient(test_app) as client:
             # The startup event should have been triggered
-            # Check that exists was called with the correct paths
+            # Check that exists was called with the correct paths (aligned first)
             expected_calls = [
-                unittest.mock.call("/app/models/hf_model"),
-                unittest.mock.call("/app/models/hf_model/config.json")
+                unittest.mock.call("/app/models/hf_model_merged_aligned"),
+                unittest.mock.call("/app/models/hf_model_merged_aligned/config.json")
             ]
             mock_exists.assert_has_calls(expected_calls, any_order=True)
-            mock_tokenizer.assert_called_with("/app/models/hf_model")
+            mock_tokenizer.assert_called_with("/app/models/hf_model_merged_aligned")
             mock_model_hf.assert_called()
             mock_llama_model_class.assert_called()
     
