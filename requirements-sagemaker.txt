@@ -1,11 +1,11 @@
 # SageMaker-specific requirements with newer versions
-bitsandbytes>=0.43.1
-peft>=0.12.0
-transformers>=4.53,<4.56
+bitsandbytes>=0.48.0
+peft>=0.11.0
+transformers>=4.57,<5.0
 accelerate>=0.33.0
-trl>=0.10.0
-datasets>=2.20,<2.21
-tokenizers>=0.21,<0.22
+trl==0.24.0
+datasets>=3.0.0
+tokenizers>=0.22,<=0.23
 safetensors>=0.4.3
 pytorch-lightning>=2.0,<3.0
 evaluate
@@ -29,5 +29,5 @@ fastapi
 uvicorn[standard]
 requests
 psycopg2-binary
-huggingface_hub>=0.25
+huggingface_hub>=0.34.0
 sentencepiece>=0.1.99
