@@ -186,6 +186,18 @@ def dpo_tune(cfg) -> str:
     losses_to_use = loss_callback.losses if loss_callback.losses else all_losses
     steps_to_use = loss_callback.steps if loss_callback.steps else all_steps
     
+    # Get average loss over all training steps (from trainer state)
+    avg_loss_all_steps = None
+    total_training_steps = trainer.state.global_step if hasattr(trainer.state, 'global_step') else None
+    if hasattr(trainer.state, 'train_loss') and trainer.state.train_loss is not None:
+        avg_loss_all_steps = trainer.state.train_loss
+    elif hasattr(trainer.state, 'log_history'):
+        # Try to get from final summary in log_history
+        for entry in reversed(trainer.state.log_history):
+            if 'train_loss' in entry:
+                avg_loss_all_steps = entry['train_loss']
+                break
+    
     # Print summary like Colab
     if losses_to_use:
         logger.info("\n" + "="*60)
@@ -196,8 +208,10 @@ def dpo_tune(cfg) -> str:
         if losses_to_use[0] > 0:
             reduction = ((losses_to_use[0] - losses_to_use[-1]) / losses_to_use[0] * 100)
             logger.info(f"Loss Reduction: {reduction:.1f}%")
-        logger.info(f"Average Loss: {sum(losses_to_use) / len(losses_to_use):.6f}")
-        logger.info(f"Total Steps: {len(losses_to_use)}")
+        logger.info(f"Average Loss (logged steps): {sum(losses_to_use) / len(losses_to_use):.6f}")
+        if avg_loss_all_steps is not None:
+            logger.info(f"Average Loss (all {total_training_steps} steps): {avg_loss_all_steps:.6f}")
+        logger.info(f"Logged Steps: {len(losses_to_use)} (every {cfg.training.log_every_n_steps} steps)")
         logger.info("="*60)
 
     logger.info("Merging and saving aligned model (FP16)")
