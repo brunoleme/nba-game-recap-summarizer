@@ -173,18 +173,31 @@ def dpo_tune(cfg) -> str:
     trainer.train()
     train_time = time.time() - start
     
+    # Get all loss values from trainer state (more comprehensive than callback)
+    all_losses = []
+    all_steps = []
+    if hasattr(trainer.state, 'log_history'):
+        for entry in trainer.state.log_history:
+            if 'loss' in entry:
+                all_losses.append(entry['loss'])
+                all_steps.append(entry.get('step', len(all_steps)))
+    
+    # Use callback losses if available, otherwise fall back to trainer state
+    losses_to_use = loss_callback.losses if loss_callback.losses else all_losses
+    steps_to_use = loss_callback.steps if loss_callback.steps else all_steps
+    
     # Print summary like Colab
-    if loss_callback.losses:
+    if losses_to_use:
         logger.info("\n" + "="*60)
         logger.info("DPO Training Loss Summary")
         logger.info("="*60)
-        logger.info(f"Initial Loss: {loss_callback.losses[0]:.6f}")
-        logger.info(f"Final Loss: {loss_callback.losses[-1]:.6f}")
-        if loss_callback.losses[0] > 0:
-            reduction = ((loss_callback.losses[0] - loss_callback.losses[-1]) / loss_callback.losses[0] * 100)
+        logger.info(f"Initial Loss: {losses_to_use[0]:.6f}")
+        logger.info(f"Final Loss: {losses_to_use[-1]:.6f}")
+        if losses_to_use[0] > 0:
+            reduction = ((losses_to_use[0] - losses_to_use[-1]) / losses_to_use[0] * 100)
             logger.info(f"Loss Reduction: {reduction:.1f}%")
-        logger.info(f"Average Loss: {sum(loss_callback.losses) / len(loss_callback.losses):.6f}")
-        logger.info(f"Total Steps: {len(loss_callback.losses)}")
+        logger.info(f"Average Loss: {sum(losses_to_use) / len(losses_to_use):.6f}")
+        logger.info(f"Total Steps: {len(losses_to_use)}")
         logger.info("="*60)
 
     logger.info("Merging and saving aligned model (FP16)")
@@ -239,7 +252,6 @@ def dpo_tune(cfg) -> str:
                 # For quantized models, we save the config but the model needs to be loaded with quantization
                 tokenizer.save_pretrained(quantized_dir)
                 # Save quantization config
-                import json
                 with open(os.path.join(quantized_dir, "quantization_config.json"), "w") as f:
                     json.dump({
                         "quantization_type": quant_type,
