@@ -256,6 +256,38 @@ def evaluate_dpo(cfg) -> str:
                 
                 if files_downloaded > 0:
                     logger.success(f"Downloaded {files_downloaded} files from base model S3 path")
+                    
+                    # Download tokenizer files from hf_model_base directory (pre-alignment models don't include them)
+                    # Extract pipeline ID from S3 path to build tokenizer path
+                    # Format: s3://bucket/output/artifacts/{PIPELINE_ID}/hf_model_merged
+                    path_parts = key_prefix.split("/")
+                    if "artifacts" in path_parts:
+                        artifacts_idx = path_parts.index("artifacts")
+                        if artifacts_idx + 1 < len(path_parts):
+                            pipeline_id = path_parts[artifacts_idx + 1]
+                            tokenizer_prefix = f"output/artifacts/{pipeline_id}/hf_model_base/"
+                            logger.info(f"Downloading tokenizer files from: s3://{bucket_name}/{tokenizer_prefix}")
+                            
+                            tokenizer_files = ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model']
+                            tokenizer_files_downloaded = 0
+                            for tokenizer_file in tokenizer_files:
+                                # Check if file already exists (some models might have it)
+                                local_file_path = os.path.join(base_dir, tokenizer_file)
+                                if not os.path.exists(local_file_path):
+                                    try:
+                                        s3_key = f"{tokenizer_prefix}{tokenizer_file}"
+                                        s3_client.download_file(bucket_name, s3_key, local_file_path)
+                                        tokenizer_files_downloaded += 1
+                                        logger.info(f"  Downloaded tokenizer file: {tokenizer_file}")
+                                    except Exception as e:
+                                        logger.warning(f"  Could not download {tokenizer_file}: {e}")
+                                else:
+                                    logger.debug(f"  Tokenizer file already exists: {tokenizer_file}")
+                            
+                            if tokenizer_files_downloaded > 0:
+                                logger.info(f"Downloaded {tokenizer_files_downloaded} tokenizer files from hf_model_base")
+                            else:
+                                logger.info("All tokenizer files already present or not available")
                 else:
                     logger.warning(f"No files found at S3 path: {base_model_path}")
                     base_dir = None
