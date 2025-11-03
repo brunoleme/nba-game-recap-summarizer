@@ -58,15 +58,20 @@ def dpo_tune(cfg) -> str:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer = add_custom_tokens_to_tokenizer(tokenizer)
 
-    bnb_cfg = None
+    # Build model loading kwargs - only include quantization_config if quantization is enabled
+    model_kwargs = {
+        "device_map": "auto",
+        "torch_dtype": torch.float16,
+    }
     if cfg.model.quantization and cfg.model.quantization_type == "4bit":
-        bnb_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16
+        )
 
     base_model = AutoModelForCausalLM.from_pretrained(
         base_dir if prefer_local else cfg.model.name,
-        device_map="auto",
-        torch_dtype=torch.float16,
-        quantization_config=bnb_cfg,
+        **model_kwargs,
     )
 
     if base_model.get_input_embeddings().num_embeddings != len(tokenizer):
