@@ -118,6 +118,7 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
             "HF_TOKEN": hf_token,
             "HUGGINGFACEHUB_API_TOKEN": huggingfacehub_api_token,
             "PIPELINE_RUN_ID": pipeline_run_id_param,
+            "BASE_MODEL_PATH": base_model_path,  # Pass base model path for pre-DPO evaluation
         },
     )
 
