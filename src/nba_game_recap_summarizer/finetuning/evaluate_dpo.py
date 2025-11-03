@@ -221,31 +221,62 @@ def evaluate_dpo(cfg) -> str:
     base_dir = None
     
     if base_model_path:
-        # BASE_MODEL_PATH is an S3 path, extract the local path structure
+        # BASE_MODEL_PATH is an S3 path, download it
         # Format: s3://bucket/output/artifacts/{PIPELINE_ID}/hf_model_merged
         if "s3://" in base_model_path:
-            # Extract pipeline ID from S3 path
-            import re
-            match = re.search(r'/artifacts/([^/]+)/', base_model_path)
-            if match:
-                base_pipeline_id = match.group(1)
-                base_dir = _find_model_path(
-                    model_root, base_pipeline_id,
-                    ["hf_model_merged", "hf_model_merged_unquantized"]
-                )
+            logger.info(f"Downloading base model from S3: {base_model_path}")
+            try:
+                import boto3
+                import tempfile
+                
+                s3_client = boto3.client('s3')
+                s3_path = base_model_path.replace("s3://", "")
+                bucket_name, key_prefix = s3_path.split("/", 1)
+                
+                # Create temporary directory for model
+                base_dir = tempfile.mkdtemp(prefix="base_model_")
+                logger.info(f"Downloading model to: {base_dir}")
+                
+                # Download all files from S3 prefix
+                paginator = s3_client.get_paginator('list_objects_v2')
+                pages = paginator.paginate(Bucket=bucket_name, Prefix=key_prefix)
+                
+                files_downloaded = 0
+                for page in pages:
+                    if 'Contents' in page:
+                        for obj in page['Contents']:
+                            file_key = obj['Key']
+                            # Remove the prefix to get relative path
+                            relative_path = file_key.replace(key_prefix, "").lstrip("/")
+                            if relative_path:  # Skip empty paths
+                                local_file_path = os.path.join(base_dir, relative_path)
+                                os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                                s3_client.download_file(bucket_name, file_key, local_file_path)
+                                files_downloaded += 1
+                
+                if files_downloaded > 0:
+                    logger.success(f"Downloaded {files_downloaded} files from base model S3 path")
+                else:
+                    logger.warning(f"No files found at S3 path: {base_model_path}")
+                    base_dir = None
+            except Exception as e:
+                logger.error(f"Failed to download base model from S3: {e}")
+                base_dir = None
         else:
             # Local path
             base_dir = base_model_path if os.path.exists(base_model_path) else None
     
     # Fallback: try to find base model in same pipeline run
     if base_dir is None:
+        logger.info("Trying to find base model in current pipeline run...")
         base_dir = _find_model_path(
             model_root, pipeline_run_id,
             ["hf_model_merged", "hf_model_merged_unquantized"]
         )
     
-    if base_dir is None:
+    if base_dir is None or not os.path.exists(os.path.join(base_dir, "config.json")):
         logger.warning("Pre-DPO (base) model not found. Will only evaluate post-DPO model.")
+        logger.warning(f"BASE_MODEL_PATH was: {base_model_path}")
         base_model = None
         base_tokenizer = None
     else:
