@@ -145,28 +145,34 @@ async def load_model():
                     if files_downloaded > 0:
                         logger.info(f"Model downloaded successfully from S3 ({files_downloaded} files)")
                         
-                        # Now download tokenizer files from hf_model_base directory
-                        # Extract pipeline ID from the S3 path to build tokenizer path
-                        # Format: s3://bucket/output/artifacts/{PIPELINE_ID}/hf_model_merged
-                        path_parts = key.split("/")
-                        if "artifacts" in path_parts:
-                            artifacts_idx = path_parts.index("artifacts")
-                            if artifacts_idx + 1 < len(path_parts):
-                                pipeline_id = path_parts[artifacts_idx + 1]
-                                tokenizer_prefix = f"output/artifacts/{pipeline_id}/hf_model_base/"
-                                logger.info(f"Downloading tokenizer files from: s3://{bucket_name}/{tokenizer_prefix}")
-                                
-                                tokenizer_files = ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model']
-                                for tokenizer_file in tokenizer_files:
-                                    try:
-                                        s3_key = f"{tokenizer_prefix}{tokenizer_file}"
-                                        local_file_path = os.path.join(local_path, tokenizer_file)
-                                        s3_client.download_file(bucket_name, s3_key, local_file_path)
-                                        files_downloaded += 1
-                                        logger.info(f"  Downloaded tokenizer file: {tokenizer_file}")
-                                    except Exception as e:
-                                        logger.warning(f"  Could not download {tokenizer_file}: {e}")
-                                logger.info(f"Total files downloaded: {files_downloaded} (including tokenizer files)")
+                        # Check if tokenizer files already exist (post-alignment models include them)
+                        tokenizer_files = ['tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model']
+                        missing_tokenizer_files = [f for f in tokenizer_files if not os.path.exists(os.path.join(local_path, f))]
+                        
+                        if missing_tokenizer_files:
+                            # Download missing tokenizer files from hf_model_base directory (fallback for pre-alignment models)
+                            # Extract pipeline ID from the S3 path to build tokenizer path
+                            # Format: s3://bucket/output/artifacts/{PIPELINE_ID}/hf_model_merged
+                            path_parts = key.split("/")
+                            if "artifacts" in path_parts:
+                                artifacts_idx = path_parts.index("artifacts")
+                                if artifacts_idx + 1 < len(path_parts):
+                                    pipeline_id = path_parts[artifacts_idx + 1]
+                                    tokenizer_prefix = f"output/artifacts/{pipeline_id}/hf_model_base/"
+                                    logger.info(f"Downloading missing tokenizer files from: s3://{bucket_name}/{tokenizer_prefix}")
+                                    
+                                    for tokenizer_file in missing_tokenizer_files:
+                                        try:
+                                            s3_key = f"{tokenizer_prefix}{tokenizer_file}"
+                                            local_file_path = os.path.join(local_path, tokenizer_file)
+                                            s3_client.download_file(bucket_name, s3_key, local_file_path)
+                                            files_downloaded += 1
+                                            logger.info(f"  Downloaded tokenizer file: {tokenizer_file}")
+                                        except Exception as e:
+                                            logger.warning(f"  Could not download {tokenizer_file}: {e}")
+                                    logger.info(f"Total files downloaded: {files_downloaded} (including tokenizer files)")
+                        else:
+                            logger.info("Tokenizer files already present in downloaded model (post-alignment model)")
 
                         # Load the downloaded model
                         from transformers import AutoTokenizer, AutoModelForCausalLM
