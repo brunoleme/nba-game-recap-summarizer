@@ -16,7 +16,7 @@ def main():
     config_name = args.config_name or f"config.{env}"
     config_path = os.path.abspath(args.config_path)
 
-    with hydra.initialize_config_dir(config_dir=config_path):
+    with hydra.initialize_config_dir(config_dir=config_path, version_base=None):
         cfg = hydra.compose(config_name=config_name)
 
     print(OmegaConf.to_yaml(cfg))
