@@ -22,6 +22,7 @@ nltk
 rouge-score
 bert-score
 pandas
+scikit-learn
 s3fs
 boto3
 sagemaker

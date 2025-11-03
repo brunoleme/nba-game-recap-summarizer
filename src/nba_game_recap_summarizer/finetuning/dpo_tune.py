@@ -5,7 +5,7 @@ import pandas as pd
 from datasets import Dataset
 from loguru import logger
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, TrainerCallback
 from peft import LoraConfig, get_peft_model, PeftModel
 from trl import DPOTrainer, DPOConfig
 
@@ -112,7 +112,7 @@ def dpo_tune(cfg) -> str:
         lr_scheduler_type="cosine",
         warmup_ratio=0.03,
         num_train_epochs=cfg.training.max_epochs,
-        logging_steps=10,
+        logging_steps=cfg.training.log_every_n_steps,
         save_steps=10_000,
         bf16=False,
         fp16=False,
@@ -122,11 +122,16 @@ def dpo_tune(cfg) -> str:
         dataloader_num_workers=0,
         remove_unused_columns=False,
         max_length=cfg.lengths.max_prompt_length + cfg.lengths.max_completion_length,
-        report_to="none",
+        report_to=["wandb"] if run else [],  # Enable console logging (TRL logs to stdout)
         gradient_checkpointing=False,
     )
 
     logger.info("Initializing DPOTrainer")
+    logger.info(f"Training configuration:")
+    logger.info(f"  Batch size: {cfg.training.batch_size}, Grad accum: {cfg.training.accumulate_grad_batches} (effective: {cfg.training.batch_size * cfg.training.accumulate_grad_batches})")
+    logger.info(f"  Learning rate: {cfg.training.learning_rate}, Epochs: {cfg.training.max_epochs}")
+    logger.info(f"  Training pairs: {len(dpo_train)}, Eval pairs: {len(dpo_eval)}")
+    
     trainer = DPOTrainer(
         model=model,
         ref_model=None,
@@ -136,9 +141,46 @@ def dpo_tune(cfg) -> str:
         processing_class=tokenizer,
     )
 
+    # Log loss evolution during training (like Colab)
+    class LossCallback(TrainerCallback):
+        def __init__(self):
+            self.losses = []
+            self.steps = []
+            
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            if logs and "loss" in logs:
+                step = state.global_step
+                loss = logs["loss"]
+                self.losses.append(loss)
+                self.steps.append(step)
+                # Print like Colab table format
+                logger.info(f"Step {step:3d} | Training Loss: {loss:.6f}")
+                # Also log other DPO metrics if available
+                for key in ["rewards/chosen", "rewards/rejected", "rewards/accuracies"]:
+                    if key in logs:
+                        logger.debug(f"  {key}: {logs[key]:.4f}")
+            return control
+            
+    loss_callback = LossCallback()
+    trainer.add_callback(loss_callback)
+
     start = time.time()
     trainer.train()
     train_time = time.time() - start
+    
+    # Print summary like Colab
+    if loss_callback.losses:
+        logger.info("\n" + "="*60)
+        logger.info("DPO Training Loss Summary")
+        logger.info("="*60)
+        logger.info(f"Initial Loss: {loss_callback.losses[0]:.6f}")
+        logger.info(f"Final Loss: {loss_callback.losses[-1]:.6f}")
+        if loss_callback.losses[0] > 0:
+            reduction = ((loss_callback.losses[0] - loss_callback.losses[-1]) / loss_callback.losses[0] * 100)
+            logger.info(f"Loss Reduction: {reduction:.1f}%")
+        logger.info(f"Average Loss: {sum(loss_callback.losses) / len(loss_callback.losses):.6f}")
+        logger.info(f"Total Steps: {len(loss_callback.losses)}")
+        logger.info("="*60)
 
     logger.info("Merging and saving aligned model (FP16)")
     if isinstance(model, PeftModel):
@@ -154,6 +196,61 @@ def dpo_tune(cfg) -> str:
         os.makedirs(aligned_fp16_dir, exist_ok=True)
         tokenizer.save_pretrained(aligned_fp16_dir)
         model.save_pretrained(aligned_fp16_dir)
+    
+    # Optionally quantize the merged model for efficient inference
+    # This is useful if you trained in FP16 but want 4-bit quantized model for deployment
+    if cfg.outputs.get("save_hf_model_merged_quantized", False):
+        logger.info("Quantizing merged model for efficient inference...")
+        try:
+            quantized_dir = os.path.join(output_root, "hf_model_merged_aligned_quantized")
+            os.makedirs(quantized_dir, exist_ok=True)
+            
+            # Load the FP16 merged model
+            fp16_model = AutoModelForCausalLM.from_pretrained(
+                aligned_fp16_dir,
+                torch_dtype=torch.float16,
+                device_map="cpu",  # Load on CPU first
+            )
+            
+            # Apply quantization
+            quant_type = cfg.model.quantization_type if cfg.model.quantization_type else "4bit"
+            if quant_type == "4bit":
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_quant_type="nf4"
+                )
+                quantized_model = AutoModelForCausalLM.from_pretrained(
+                    aligned_fp16_dir,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                )
+            else:
+                logger.warning(f"Quantization type {quant_type} not yet supported for post-training quantization")
+                quantized_model = None
+            
+            if quantized_model:
+                # For quantized models, we save the config but the model needs to be loaded with quantization
+                tokenizer.save_pretrained(quantized_dir)
+                # Save quantization config
+                import json
+                with open(os.path.join(quantized_dir, "quantization_config.json"), "w") as f:
+                    json.dump({
+                        "quantization_type": quant_type,
+                        "load_in_4bit": quant_type == "4bit",
+                        "bnb_4bit_compute_dtype": "float16",
+                    }, f, indent=2)
+                logger.success(f"Quantized model configuration saved to: {quantized_dir}")
+                logger.info("Note: Load quantized model using AutoModelForCausalLM.from_pretrained() with BitsAndBytesConfig")
+            
+            # Clean up
+            del fp16_model
+            if quantized_model:
+                del quantized_model
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        except Exception as e:
+            logger.warning(f"Could not quantize model: {e}")
 
     with open(os.path.join(output_root, "train_config.json"), "w") as f:
         json.dump(cfg.to_container(resolve=True) if hasattr(cfg, 'to_container') else {}, f, indent=2)
