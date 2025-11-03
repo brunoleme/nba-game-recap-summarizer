@@ -30,7 +30,7 @@ training:
   gradient_clip_val: 1.0
   max_epochs: 1
   num_workers: 2
-  log_every_n_steps: 10
+  log_every_n_steps: 1  # Match Colab: log every step to see all 38 steps
   gradient_checkpointing: false
   model_artifact_dir: "/opt/ml/processing/output/model-artifacts"
   devices: "auto"
