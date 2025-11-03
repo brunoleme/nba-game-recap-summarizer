@@ -189,12 +189,12 @@ def evaluate_dpo(cfg) -> str:
     
     Output Files:
     ------------
-    - evaluation_results.json: Full results with all metrics for both models
-    - eval_metrics.json: Summary metrics only (for pipeline PropertyFile)
+    - alignment_evaluation_results.json: Full results with all metrics for both models
+    - alignment_eval_metrics.json: Summary metrics only (for pipeline PropertyFile)
     
     Model Locations:
     ---------------
-    - Post-DPO (aligned): {PIPELINE_RUN_ID}/dpo/hf_model_merged_aligned/
+    - Post-DPO (aligned): {PIPELINE_RUN_ID}/hf_model_merged_aligned/ (saved directly in pipeline root)
     - Pre-DPO (base): Loaded from BASE_MODEL_PATH env var or previous pipeline run
     """
     logger.info("Starting comprehensive DPO evaluation (pre vs post-DPO)")
@@ -204,10 +204,10 @@ def evaluate_dpo(cfg) -> str:
     model_root = "/opt/ml/processing/input/model-artifacts"
     pipeline_run_id = os.getenv("PIPELINE_RUN_ID", "")
     
-    # Find post-DPO (aligned) model
+    # Find post-DPO (aligned) model - saved directly in pipeline root, not in dpo/ subfolder
     aligned_dir = _find_model_path(
         model_root, pipeline_run_id,
-        ["dpo/hf_model_merged_aligned", "hf_model_merged_aligned", "hf_model_merged_unquantized_aligned"]
+        ["hf_model_merged_aligned", "hf_model_merged_unquantized_aligned"]
     )
     
     if aligned_dir is None:
@@ -479,11 +479,11 @@ def evaluate_dpo(cfg) -> str:
     os.makedirs(reports_dir, exist_ok=True)
     logger.info(f"Saving evaluation results to: {reports_dir}")
     
-    # Save full evaluation results JSON
-    results_path = os.path.join(reports_dir, "evaluation_results.json")
+    # Save full evaluation results JSON (renamed to distinguish from supervised fine-tuning)
+    results_path = os.path.join(reports_dir, "alignment_evaluation_results.json")
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
-    logger.success(f"Saved evaluation_results.json to: {reports_dir}")
+    logger.success(f"Saved alignment_evaluation_results.json to: {reports_dir}")
 
     # Write pipeline report file (for PropertyFile - summary metrics only)
     summary_metrics = {
@@ -524,10 +524,10 @@ def evaluate_dpo(cfg) -> str:
             }
     
     try:
-        summary_path = os.path.join(reports_dir, "eval_metrics.json")
+        summary_path = os.path.join(reports_dir, "alignment_eval_metrics.json")
         with open(summary_path, "w") as f:
             json.dump(summary_metrics, f, indent=2)
-        logger.info(f"Saved eval_metrics.json (summary) to: {reports_dir}")
+        logger.info(f"Saved alignment_eval_metrics.json (summary) to: {reports_dir}")
     except Exception as e:
         logger.warning(f"Could not write pipeline report file: {e}")
 
@@ -551,6 +551,6 @@ def evaluate_dpo(cfg) -> str:
             run.finish()
         except Exception:
             pass
-    
+
     logger.success(f"DPO evaluation complete. Results saved to: {reports_dir}")
     return results_path

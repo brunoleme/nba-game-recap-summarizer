@@ -121,11 +121,11 @@ def create_pipeline(role_arn: str, pipeline_run_uuid: str = None) -> Pipeline:
         },
     )
 
-    # Property file to surface metrics
+    # Property file to surface metrics (renamed to distinguish from supervised fine-tuning)
     evaluation_report = PropertyFile(
         name="DPOEvaluationReport",
         output_name="evaluation-metrics",
-        path=f"{pipeline_run_uuid}/reports/eval_metrics.json"
+        path=f"{pipeline_run_uuid}/reports/alignment_eval_metrics.json"
     )
 
     evaluation_step = ProcessingStep(
