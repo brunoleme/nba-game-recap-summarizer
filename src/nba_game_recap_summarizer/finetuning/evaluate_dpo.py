@@ -60,19 +60,31 @@ def evaluate_dpo(cfg) -> str:
     df = _load_pairs(pairs_csv)
 
     model_root = "/opt/ml/processing/input/model-artifacts"
-    # Prefer DPO subdir first
-    candidates = [
+    pipeline_run_id = os.getenv("PIPELINE_RUN_ID", "")
+    
+    # Try multiple path structures (with and without pipeline_run_id)
+    candidates = []
+    if pipeline_run_id:
+        # Path structure: /opt/ml/processing/input/model-artifacts/{PIPELINE_RUN_ID}/dpo/hf_model_merged_aligned
+        candidates.append(os.path.join(model_root, pipeline_run_id, "dpo", "hf_model_merged_aligned"))
+        candidates.append(os.path.join(model_root, pipeline_run_id, "hf_model_merged_aligned"))
+    # Fallback paths (without pipeline_run_id)
+    candidates.extend([
         os.path.join(model_root, "dpo", "hf_model_merged_aligned"),
         os.path.join(model_root, "hf_model_merged_aligned"),
         os.path.join(model_root, "hf_model_merged_unquantized_aligned"),
-    ]
+    ])
+    
     aligned_dir = None
     for c in candidates:
         if os.path.exists(c) and os.path.exists(os.path.join(c, "config.json")):
             aligned_dir = c
+            logger.info(f"Found aligned model at: {aligned_dir}")
             break
-    if not os.path.exists(aligned_dir):
-        raise FileNotFoundError("Aligned model not found in model-artifacts input")
+    
+    if aligned_dir is None or not os.path.exists(aligned_dir):
+        logger.error(f"Aligned model not found. Tried paths: {candidates}")
+        raise FileNotFoundError(f"Aligned model not found in model-artifacts input. Checked: {candidates}")
 
     tokenizer = AutoTokenizer.from_pretrained(aligned_dir)
     if tokenizer.pad_token is None:
