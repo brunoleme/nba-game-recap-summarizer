@@ -13,6 +13,7 @@ from nba_game_recap_summarizer.finetuning.utils.tokenization_utils import (
     preprocess_text,
     postprocess_text,
 )
+from nba_game_recap_summarizer.finetuning.utils.text_utils import clean_game_recap
 
 
 def _load_pairs(csv_path: str) -> pd.DataFrame:
@@ -26,11 +27,18 @@ def _load_pairs(csv_path: str) -> pd.DataFrame:
 
 
 def _generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
+    """
+    Generate text from model, matching LlamaRecapSummarizationModel.summarize_recap parameters.
+    
+    This function replicates the exact generation pipeline used in production inference
+    to ensure evaluation results are comparable.
+    """
+    # Use tokenizer's max_length for consistency with model.summarize_recap
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
         truncation=True,
-        max_length=2048,
+        max_length=tokenizer.model_max_length,
         padding=True,
     )
     device = next(model.parameters()).device
@@ -40,21 +48,30 @@ def _generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
+            min_new_tokens=10,  # Ensure minimum generation length
             do_sample=True,
             temperature=0.7,
             top_p=0.9,
             top_k=50,
-            eos_token_id=tokenizer.eos_token_id,
-            pad_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.1,
+            typical_p=None,
+            eos_token_id=getattr(tokenizer, "eos_token_id", None),
+            pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
+            no_repeat_ngram_size=0,  # Disable n-gram blocking (matches model.summarize_recap)
+            repetition_penalty=1.1,  # Lower penalty (matches model.summarize_recap)
             use_cache=True,
-            early_stopping=True,
+            early_stopping=False,  # Don't stop early - let it generate full length
             num_beams=1,
         )
     input_len = inputs["input_ids"].shape[1]
     gen_ids = outputs[0][input_len:]
     text = tokenizer.decode(gen_ids, skip_special_tokens=True)
-    return postprocess_text(text.strip())
+    result = postprocess_text(text.strip())
+    
+    # Log if generation is suspiciously short
+    if len(result) < 20:
+        logger.warning(f"Generated text is very short ({len(result)} chars): {result[:100]}")
+    
+    return result
 
 
 class NarrativeStyleEvaluator:
@@ -109,6 +126,7 @@ class NarrativeStyleEvaluator:
     
     def calculate_coherence_score(self, text):
         if self.model is None:
+            logger.debug("SentenceTransformer model not available for coherence calculation")
             return 0.0
         sents = self._sentences(text)
         if len(sents) < 2:
@@ -117,16 +135,21 @@ class NarrativeStyleEvaluator:
             embs = self.model.encode(sents, convert_to_numpy=True, normalize_embeddings=True)
             sims = (embs[:-1] * embs[1:]).sum(axis=1)
             return float(np.mean(sims)) if sims.size else 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to calculate coherence score: {e}")
             return 0.0
     
     def calculate_coverage_score(self, original, summary):
-        if not original or not summary or self.model is None:
+        if self.model is None:
+            logger.debug("SentenceTransformer model not available for coverage calculation")
+            return 0.0
+        if not original or not summary:
             return 0.0
         try:
             embs = self.model.encode([original, summary], convert_to_numpy=True, normalize_embeddings=True)
             return float(np.dot(embs[0], embs[1]))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to calculate coverage score: {e}")
             return 0.0
     
     def evaluate(self, original, summary):
@@ -380,12 +403,17 @@ def evaluate_dpo(cfg) -> str:
     rejected_summaries = []
 
     for _, row in samples.iterrows():
+        # Clean and preprocess the game recap (matching inference API pipeline)
+        raw_recap = str(row["game_recap"])
+        cleaned_recap = clean_game_recap(raw_recap)  # First clean (removes control chars, normalizes)
+        preprocessed_recap = preprocess_text(cleaned_recap)  # Then preprocess (converts scores, etc.)
+        
         prompt = (
             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
-            "### NBA Game Recap ###\n" + preprocess_text(str(row["game_recap"])) + "\n\n### Recap Summary ###\n"
+            "### NBA Game Recap ###\n" + preprocessed_recap + "\n\n### Recap Summary ###\n"
         )
         prompts.append(prompt)
-        game_recaps.append(str(row["game_recap"]))
+        game_recaps.append(raw_recap)  # Store original for metrics
         chosen_summaries.append(str(row["chosen"]))
         rejected_summaries.append(str(row["rejected"]))
         
@@ -418,19 +446,36 @@ def evaluate_dpo(cfg) -> str:
             rejected_sims = []
             prompt_sims = []
             for i, gen in enumerate(valid_gens):
-                if gen:
-                    chosen_sim = cosine_similarity(st.encode([gen]), st.encode([valid_chosen[i]]))[0][0]
-                    rejected_idx = i % len(rejected_summaries)
-                    rejected_sim = cosine_similarity(st.encode([gen]), st.encode([rejected_summaries[rejected_idx]]))[0][0]
-                    prompt_sim = cosine_similarity(st.encode([gen]), st.encode([game_recaps[i]]))[0][0]
-                    chosen_sims.append(chosen_sim)
-                    rejected_sims.append(rejected_sim)
-                    prompt_sims.append(prompt_sim)
+                if gen and len(gen.strip()) > 0:  # Only process non-empty generations
+                    try:
+                        # Encode all texts at once for efficiency
+                        gen_emb = st.encode([gen], normalize_embeddings=True, convert_to_numpy=True)
+                        chosen_emb = st.encode([valid_chosen[i]], normalize_embeddings=True, convert_to_numpy=True)
+                        rejected_idx = i % len(rejected_summaries)
+                        rejected_emb = st.encode([rejected_summaries[rejected_idx]], normalize_embeddings=True, convert_to_numpy=True)
+                        game_recap_emb = st.encode([game_recaps[i]], normalize_embeddings=True, convert_to_numpy=True)
+                        
+                        # Calculate cosine similarity (dot product since embeddings are normalized)
+                        chosen_sim = float(np.dot(gen_emb[0], chosen_emb[0]))
+                        rejected_sim = float(np.dot(gen_emb[0], rejected_emb[0]))
+                        prompt_sim = float(np.dot(gen_emb[0], game_recap_emb[0]))
+                        
+                        chosen_sims.append(chosen_sim)
+                        rejected_sims.append(rejected_sim)
+                        prompt_sims.append(prompt_sim)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate similarity for sample {i}: {e}")
+                        continue
             
             if chosen_sims:
                 metrics["preference_accuracy"] = float(sum(1 for cs, rs in zip(chosen_sims, rejected_sims) if cs > rs) / len(chosen_sims))
                 metrics["avg_alignment"] = float(np.mean(chosen_sims))
                 metrics["avg_semantic_preservation"] = float(np.mean(prompt_sims))
+                logger.debug(f"Preference metrics: accuracy={metrics['preference_accuracy']:.3f}, alignment={metrics['avg_alignment']:.3f}")
+            else:
+                logger.warning("No valid generations for preference metrics calculation")
+        else:
+            logger.warning("SentenceTransformer not available, skipping preference metrics")
         
         # Narrative style scores
         narrative_scores = []
