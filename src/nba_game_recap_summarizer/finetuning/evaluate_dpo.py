@@ -466,15 +466,30 @@ def evaluate_dpo(cfg) -> str:
                 metrics["bert_score"] = 0.0
         
         # AI-as-Judge metrics (requires OPENAI_API_KEY)
-        if metrics_available and os.getenv("OPENAI_API_KEY"):
+        # These can take a long time (20 samples × 5 metrics = 100 API calls, ~10-20 minutes)
+        # Can be disabled via config: evaluation.skip_ai_judge_metrics = true
+        skip_ai_judge = getattr(cfg.evaluation, "skip_ai_judge_metrics", False)
+        if skip_ai_judge:
+            logger.info("Skipping AI-as-Judge metrics (disabled in config)")
+        elif metrics_available and os.getenv("OPENAI_API_KEY"):
             try:
+                logger.info(f"Calculating AI-as-Judge metrics for {len(valid_gens)} samples (this may take 10-20 minutes)...")
+                logger.info("  Calculating factual_consistency...")
                 metrics["factual_consistency"] = float(calculate_factual_consistency(valid_gens, None, valid_prompts))
+                logger.info("  Calculating relevance...")
                 metrics["relevance"] = float(calculate_relevance(valid_gens, valid_chosen, valid_prompts))
+                logger.info("  Calculating completeness...")
                 metrics["completeness"] = float(calculate_completeness(valid_gens, None, valid_prompts))
+                logger.info("  Calculating conciseness...")
                 metrics["conciseness"] = float(calculate_conciseness(valid_gens, None, valid_prompts))
+                logger.info("  Calculating clarity...")
                 metrics["clarity"] = float(calculate_clarity(valid_gens, None, valid_prompts))
+                logger.info("AI-as-Judge metrics completed")
             except Exception as e:
                 logger.warning(f"Could not calculate AI-as-Judge metrics: {e}")
+                logger.warning("Continuing evaluation without AI-as-Judge metrics")
+        else:
+            logger.info("Skipping AI-as-Judge metrics (OPENAI_API_KEY not set or metrics not available)")
         
         return metrics
     
