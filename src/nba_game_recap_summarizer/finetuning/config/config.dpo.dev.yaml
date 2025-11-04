@@ -49,6 +49,7 @@ data:
 evaluation:
   num_samples: 20
   reports_dir: "/opt/ml/processing/output/model-artifacts/${oc.env:PIPELINE_RUN_ID}/reports"
+  skip_ai_judge_metrics: false  # Set to true to skip AI-as-Judge metrics (saves ~10-20 minutes, 100 API calls)
 
 outputs:
   output_dir: "/opt/ml/processing/output/model-artifacts/${oc.env:PIPELINE_RUN_ID}"
