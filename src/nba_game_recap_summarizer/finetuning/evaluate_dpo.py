@@ -355,6 +355,7 @@ def evaluate_dpo(cfg) -> str:
     try:
         from sentence_transformers import SentenceTransformer
         st = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("SentenceTransformer initialized successfully for preference metrics")
     except Exception as e:
         logger.warning(f"sentence-transformers not available: {e}. Some metrics will be skipped.")
         st = None
@@ -362,6 +363,10 @@ def evaluate_dpo(cfg) -> str:
     narrative_evaluator = NarrativeStyleEvaluator(
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
+    if narrative_evaluator.model is None:
+        logger.warning("NarrativeStyleEvaluator SentenceTransformer model is None - coherence/coverage scores will be 0.0")
+    else:
+        logger.info("NarrativeStyleEvaluator SentenceTransformer initialized successfully")
     
     # Import metrics
     try:
@@ -445,6 +450,7 @@ def evaluate_dpo(cfg) -> str:
             chosen_sims = []
             rejected_sims = []
             prompt_sims = []
+            logger.info(f"Calculating preference metrics for {len(valid_gens)} valid generations")
             for i, gen in enumerate(valid_gens):
                 if gen and len(gen.strip()) > 0:  # Only process non-empty generations
                     try:
@@ -471,9 +477,10 @@ def evaluate_dpo(cfg) -> str:
                 metrics["preference_accuracy"] = float(sum(1 for cs, rs in zip(chosen_sims, rejected_sims) if cs > rs) / len(chosen_sims))
                 metrics["avg_alignment"] = float(np.mean(chosen_sims))
                 metrics["avg_semantic_preservation"] = float(np.mean(prompt_sims))
-                logger.debug(f"Preference metrics: accuracy={metrics['preference_accuracy']:.3f}, alignment={metrics['avg_alignment']:.3f}")
+                logger.info(f"Preference metrics calculated: accuracy={metrics['preference_accuracy']:.3f}, alignment={metrics['avg_alignment']:.3f}, semantic_preservation={metrics['avg_semantic_preservation']:.3f}")
+                logger.info(f"  Sample similarities: chosen_sim range=[{min(chosen_sims):.3f}, {max(chosen_sims):.3f}], rejected_sim range=[{min(rejected_sims):.3f}, {max(rejected_sims):.3f}]")
             else:
-                logger.warning("No valid generations for preference metrics calculation")
+                logger.warning(f"No valid similarity calculations for {model_name}. Valid generations: {len(valid_gens)}")
         else:
             logger.warning("SentenceTransformer not available, skipping preference metrics")
         
