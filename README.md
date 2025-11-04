@@ -447,12 +447,6 @@ DPO training shows **measurable improvements** across all key metrics:
 | **Conciseness** | 2.40 | **2.40** | Stable |
 | **Clarity** | 2.36 | 2.35 | -0.3% |
 
-#### Classical Metrics
-| Metric | Pre-DPO | Post-DPO | Improvement |
-|--------|---------|----------|------------|
-| **ROUGE Score** | 0.183 | **0.188** | **+2.6%** |
-| **BERTScore** | 0.855 | 0.853 | -0.2% |
-
 **Key Findings:**
 - ✅ **Preference alignment improved**: 9.7% increase in accuracy shows the model better matches preferred summaries
 - ✅ **Narrative coherence improved**: 10.3% increase in coherence score indicates better sentence flow
