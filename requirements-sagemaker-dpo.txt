@@ -33,3 +33,4 @@ requests
 psycopg2-binary
 huggingface_hub>=0.34.0
 sentencepiece>=0.1.99
+sentence-transformers>=2.2.0
