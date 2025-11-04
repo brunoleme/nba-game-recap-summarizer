@@ -13,6 +13,7 @@ from nba_game_recap_summarizer.finetuning.utils.tokenization_utils import (
     preprocess_text,
     postprocess_text,
 )
+from nba_game_recap_summarizer.finetuning.utils.text_utils import clean_game_recap
 
 
 def _load_pairs(csv_path: str) -> pd.DataFrame:
@@ -394,12 +395,17 @@ def evaluate_dpo(cfg) -> str:
     rejected_summaries = []
 
     for _, row in samples.iterrows():
+        # Clean and preprocess the game recap (matching inference API pipeline)
+        raw_recap = str(row["game_recap"])
+        cleaned_recap = clean_game_recap(raw_recap)  # First clean (removes control chars, normalizes)
+        preprocessed_recap = preprocess_text(cleaned_recap)  # Then preprocess (converts scores, etc.)
+        
         prompt = (
             "You are an NBA Analyst. Summarize the following NBA game recap into a recap synthesis.\n\n"
-            "### NBA Game Recap ###\n" + preprocess_text(str(row["game_recap"])) + "\n\n### Recap Summary ###\n"
+            "### NBA Game Recap ###\n" + preprocessed_recap + "\n\n### Recap Summary ###\n"
         )
         prompts.append(prompt)
-        game_recaps.append(str(row["game_recap"]))
+        game_recaps.append(raw_recap)  # Store original for metrics
         chosen_summaries.append(str(row["chosen"]))
         rejected_summaries.append(str(row["rejected"]))
         
