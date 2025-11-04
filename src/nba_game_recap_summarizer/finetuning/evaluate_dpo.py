@@ -26,6 +26,7 @@ def _load_pairs(csv_path: str) -> pd.DataFrame:
 
 
 def _generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
+    """Generate text from model with improved parameters."""
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -40,21 +41,28 @@ def _generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
+            min_new_tokens=10,  # Ensure minimum generation length
             do_sample=True,
             temperature=0.7,
             top_p=0.9,
             top_k=50,
             eos_token_id=tokenizer.eos_token_id,
-            pad_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
             repetition_penalty=1.1,
             use_cache=True,
-            early_stopping=True,
+            early_stopping=False,  # Don't stop early - let it generate full length
             num_beams=1,
         )
     input_len = inputs["input_ids"].shape[1]
     gen_ids = outputs[0][input_len:]
     text = tokenizer.decode(gen_ids, skip_special_tokens=True)
-    return postprocess_text(text.strip())
+    result = postprocess_text(text.strip())
+    
+    # Log if generation is suspiciously short
+    if len(result) < 20:
+        logger.warning(f"Generated text is very short ({len(result)} chars): {result[:100]}")
+    
+    return result
 
 
 class NarrativeStyleEvaluator:
@@ -418,19 +426,36 @@ def evaluate_dpo(cfg) -> str:
             rejected_sims = []
             prompt_sims = []
             for i, gen in enumerate(valid_gens):
-                if gen:
-                    chosen_sim = cosine_similarity(st.encode([gen]), st.encode([valid_chosen[i]]))[0][0]
-                    rejected_idx = i % len(rejected_summaries)
-                    rejected_sim = cosine_similarity(st.encode([gen]), st.encode([rejected_summaries[rejected_idx]]))[0][0]
-                    prompt_sim = cosine_similarity(st.encode([gen]), st.encode([game_recaps[i]]))[0][0]
-                    chosen_sims.append(chosen_sim)
-                    rejected_sims.append(rejected_sim)
-                    prompt_sims.append(prompt_sim)
+                if gen and len(gen.strip()) > 0:  # Only process non-empty generations
+                    try:
+                        # Encode all texts at once for efficiency
+                        gen_emb = st.encode([gen], normalize_embeddings=True, convert_to_numpy=True)
+                        chosen_emb = st.encode([valid_chosen[i]], normalize_embeddings=True, convert_to_numpy=True)
+                        rejected_idx = i % len(rejected_summaries)
+                        rejected_emb = st.encode([rejected_summaries[rejected_idx]], normalize_embeddings=True, convert_to_numpy=True)
+                        game_recap_emb = st.encode([game_recaps[i]], normalize_embeddings=True, convert_to_numpy=True)
+                        
+                        # Calculate cosine similarity (dot product since embeddings are normalized)
+                        chosen_sim = float(np.dot(gen_emb[0], chosen_emb[0]))
+                        rejected_sim = float(np.dot(gen_emb[0], rejected_emb[0]))
+                        prompt_sim = float(np.dot(gen_emb[0], game_recap_emb[0]))
+                        
+                        chosen_sims.append(chosen_sim)
+                        rejected_sims.append(rejected_sim)
+                        prompt_sims.append(prompt_sim)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate similarity for sample {i}: {e}")
+                        continue
             
             if chosen_sims:
                 metrics["preference_accuracy"] = float(sum(1 for cs, rs in zip(chosen_sims, rejected_sims) if cs > rs) / len(chosen_sims))
                 metrics["avg_alignment"] = float(np.mean(chosen_sims))
                 metrics["avg_semantic_preservation"] = float(np.mean(prompt_sims))
+                logger.debug(f"Preference metrics: accuracy={metrics['preference_accuracy']:.3f}, alignment={metrics['avg_alignment']:.3f}")
+            else:
+                logger.warning("No valid generations for preference metrics calculation")
+        else:
+            logger.warning("SentenceTransformer not available, skipping preference metrics")
         
         # Narrative style scores
         narrative_scores = []
