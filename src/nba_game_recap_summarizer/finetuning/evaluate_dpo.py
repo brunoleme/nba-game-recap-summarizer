@@ -117,6 +117,7 @@ class NarrativeStyleEvaluator:
     
     def calculate_coherence_score(self, text):
         if self.model is None:
+            logger.debug("SentenceTransformer model not available for coherence calculation")
             return 0.0
         sents = self._sentences(text)
         if len(sents) < 2:
@@ -125,16 +126,21 @@ class NarrativeStyleEvaluator:
             embs = self.model.encode(sents, convert_to_numpy=True, normalize_embeddings=True)
             sims = (embs[:-1] * embs[1:]).sum(axis=1)
             return float(np.mean(sims)) if sims.size else 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to calculate coherence score: {e}")
             return 0.0
     
     def calculate_coverage_score(self, original, summary):
-        if not original or not summary or self.model is None:
+        if self.model is None:
+            logger.debug("SentenceTransformer model not available for coverage calculation")
+            return 0.0
+        if not original or not summary:
             return 0.0
         try:
             embs = self.model.encode([original, summary], convert_to_numpy=True, normalize_embeddings=True)
             return float(np.dot(embs[0], embs[1]))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to calculate coverage score: {e}")
             return 0.0
     
     def evaluate(self, original, summary):
