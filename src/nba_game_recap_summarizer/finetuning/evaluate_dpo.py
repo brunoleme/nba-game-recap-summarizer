@@ -27,12 +27,18 @@ def _load_pairs(csv_path: str) -> pd.DataFrame:
 
 
 def _generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
-    """Generate text from model with improved parameters."""
+    """
+    Generate text from model, matching LlamaRecapSummarizationModel.summarize_recap parameters.
+    
+    This function replicates the exact generation pipeline used in production inference
+    to ensure evaluation results are comparable.
+    """
+    # Use tokenizer's max_length for consistency with model.summarize_recap
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
         truncation=True,
-        max_length=2048,
+        max_length=tokenizer.model_max_length,
         padding=True,
     )
     device = next(model.parameters()).device
@@ -47,9 +53,11 @@ def _generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
             temperature=0.7,
             top_p=0.9,
             top_k=50,
-            eos_token_id=tokenizer.eos_token_id,
+            typical_p=None,
+            eos_token_id=getattr(tokenizer, "eos_token_id", None),
             pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
-            repetition_penalty=1.1,
+            no_repeat_ngram_size=0,  # Disable n-gram blocking (matches model.summarize_recap)
+            repetition_penalty=1.1,  # Lower penalty (matches model.summarize_recap)
             use_cache=True,
             early_stopping=False,  # Don't stop early - let it generate full length
             num_beams=1,
