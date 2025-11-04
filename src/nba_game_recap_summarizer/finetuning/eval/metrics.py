@@ -28,26 +28,54 @@ class ResponseFormatter(BaseModel):
 
 def init_grader(prompt_template) -> Callable:
     api_key = os.getenv("OPENAI_API_KEY")
-    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, api_key=api_key).bind_tools([ResponseFormatter])
+    # Add timeout to prevent hanging (30 seconds per request)
+    llm = ChatOpenAI(
+        model="gpt-3.5-turbo", 
+        temperature=0, 
+        api_key=api_key,
+        timeout=30.0,  # 30 second timeout per request
+        max_retries=2  # Retry up to 2 times
+    ).bind_tools([ResponseFormatter])
     return prompt_template | llm
 
-def evaluate_with_grader(grader, format_fn, *data_streams):
+def evaluate_with_grader(grader, format_fn, *data_streams, metric_name="unknown"):
+    """Evaluate with grader, adding progress logging and timeout handling."""
+    from loguru import logger
+    
     # Return 0 if grader is None (no API key available)
     if grader is None:
         return 0.0
     
+    # Convert to lists to avoid consuming iterator
+    data_lists = [list(stream) for stream in data_streams] if data_streams else []
+    total = len(data_lists[0]) if data_lists else 0
+    
+    if total == 0:
+        return 0.0
+    
+    logger.info(f"Calculating {metric_name} metric for {total} samples (this may take a few minutes)...")
+    
     grades = []
-    for args in zip(*data_streams):
+    for idx in range(total):
+        args = tuple(stream[idx] for stream in data_lists)
         prompt_input = format_fn(*args)
         try:
+            # Log progress every 5 samples
+            if (idx + 1) % 5 == 0 or idx == 0:
+                logger.info(f"  {metric_name}: Processing sample {idx + 1}/{total}")
+            
             response = grader.invoke(prompt_input)
             if hasattr(response, "tool_calls") and response.tool_calls:
                 score = float(response.tool_calls[0]["args"]["score"])
                 if 1 <= score <= 5:
                     grades.append(score)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"  {metric_name}: Failed to evaluate sample {idx + 1}: {e}")
             continue
-    return np.mean(grades) if grades else 0
+    
+    result = np.mean(grades) if grades else 0.0
+    logger.info(f"  {metric_name}: Completed {len(grades)}/{total} samples, average score: {result:.2f}")
+    return result
 
 # --- Classical metrics ---
 def calculate_rouge(predictions, references, _):
@@ -117,7 +145,8 @@ def calculate_relevance(predictions, references, instructions):
             "ground_truth_recap_summary": ref,
             "generated_recap_summary": pred,
         },
-        predictions, references, instructions
+        predictions, references, instructions,
+        metric_name="relevance"
     )
 
 def calculate_factual_consistency(predictions, _, instructions):
@@ -127,7 +156,8 @@ def calculate_factual_consistency(predictions, _, instructions):
             "instruction": instr,
             "generated_recap_summary": pred,
         },
-        predictions, instructions
+        predictions, instructions,
+        metric_name="factual_consistency"
     )
 
 def calculate_completeness(predictions, _, instructions):
@@ -137,7 +167,8 @@ def calculate_completeness(predictions, _, instructions):
             "instruction": instr,
             "generated_recap_summary": pred,
         },
-        predictions, instructions
+        predictions, instructions,
+        metric_name="completeness"
     )
 
 def calculate_clarity(predictions, _, instructions):
@@ -147,7 +178,8 @@ def calculate_clarity(predictions, _, instructions):
             "instruction": instr,
             "generated_recap_summary": pred,
         },
-        predictions, instructions
+        predictions, instructions,
+        metric_name="clarity"
     )
 
 def calculate_conciseness(predictions, _, instructions):
@@ -157,7 +189,8 @@ def calculate_conciseness(predictions, _, instructions):
             "instruction": instr,
             "generated_recap_summary": pred,
         },
-        predictions, instructions
+        predictions, instructions,
+        metric_name="conciseness"
     )
 
 # --- Group Evaluation Entry Point ---
